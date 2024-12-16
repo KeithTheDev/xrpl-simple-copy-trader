@@ -74,8 +74,8 @@ Copy the FOLLOWER_SEED into your .env file and fund the newly created address wi
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/KeithTheDev/xrpl-simple-copytrader.git
-   cd xrpl-simple-copytrader
+   git clone https://github.com/KeithTheDev/xrpl-simple-copy-trader.git
+   cd xrpl-simple-copy-trader
    ```
 2. **Create and Activate a Virtual Environment**:
    ```bash
