@@ -1,0 +1,22 @@
+# Network configuration
+network:
+  websocket_url: "wss://s.altnet.rippletest.net:51233"  # Default to testnet
+  max_reconnect_attempts: 5
+  reconnect_delay_seconds: 5
+
+# Wallet configuration
+wallets:
+  target_wallet: ""
+  follower_seed: ""
+
+# Trading configuration
+trading:
+  initial_purchase_amount: "1"
+  min_trust_line_amount: "1000"
+  max_trust_line_amount: "10000"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  filename: "xrpl_trader.log"

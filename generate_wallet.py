@@ -1,5 +1,4 @@
 import json
-
 from xrpl.wallet import Wallet
 
 # Generate a new wallet
@@ -13,6 +12,6 @@ wallet_info = {
 print("\nWallet Details:")
 print(json.dumps(wallet_info, indent=2))
 
-print("\nAdd this to your .env file:")
-print(f"FOLLOWER_SEED={wallet.seed}")
-print(f"Your public address is: {wallet.classic_address}")
+print("\nAdd these values to your config.local.yaml:")
+print(f"target_wallet: {wallet.classic_address}")
+print(f"follower_seed: {wallet.seed}")

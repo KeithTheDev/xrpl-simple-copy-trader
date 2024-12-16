@@ -1,57 +1,88 @@
 import asyncio
 import json
-import os
-from decimal import Decimal
+import logging
+import argparse
 from typing import Any, Dict
 
-from dotenv import load_dotenv
 from xrpl.asyncio.clients import AsyncWebsocketClient
 from xrpl.asyncio.transaction import submit_and_wait
 from xrpl.models.amounts import IssuedCurrencyAmount
 from xrpl.models.requests import StreamParameter, Subscribe
 from xrpl.models.transactions import Payment, TrustSet
-from xrpl.utils import xrp_to_drops
 from xrpl.wallet import Wallet
 
-# Load environment variables
-load_dotenv()
+from config import Config
 
 class XRPLTokenMonitor:
-    def __init__(self, target_wallet: str, follower_seed: str, websocket_url: str):
-        self.target_wallet = target_wallet
-        self.follower_wallet = Wallet.from_seed(follower_seed)
-        self.websocket_url = websocket_url
+    def __init__(self, config: Config, debug: bool = False):
+        self.config = config
+        self.target_wallet = config.get('wallets', 'target_wallet')
+        self.follower_wallet = Wallet.from_seed(config.get('wallets', 'follower_seed'))
+        self.websocket_url = config.get('network', 'websocket_url')
         self.client = None
-        self.initial_purchase_amount = os.getenv('INITIAL_PURCHASE_AMOUNT', '1')
-        self.min_trust_line_amount = os.getenv('MIN_TRUST_LINE_AMOUNT', '1000')
-        self.max_trust_line_amount = os.getenv('MAX_TRUST_LINE_AMOUNT', '10000')
-
-    async def connect(self):
-        """Establish connection to XRPL"""
-        print(f"Connecting to {self.websocket_url}...")
-        self.client = AsyncWebsocketClient(self.websocket_url)
-        await self.client.open()
-        print("Connected to XRPL")
-        print(f"Follower wallet address: {self.follower_wallet.classic_address}")
-
-        # Subscribe to target wallet transactions
-        subscribe_request = Subscribe(
-            streams=[StreamParameter.TRANSACTIONS],
-            accounts=[self.target_wallet]
+        self.is_running = False
+        self.reconnect_count = 0
+        
+        # Setup logging
+        log_config = config.get('logging', default={})
+        log_handlers = []
+        
+        # File handler
+        if log_config.get('filename'):
+            file_handler = logging.FileHandler(log_config['filename'])
+            file_handler.setFormatter(logging.Formatter(log_config.get('format')))
+            log_handlers.append(file_handler)
+        
+        # Console handler (always on for error and critical, optional for debug)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter('%(message)s'))
+        if debug:
+            console_handler.setLevel(logging.DEBUG)
+        else:
+            console_handler.setLevel(logging.ERROR)
+        log_handlers.append(console_handler)
+        
+        # Setup root logger
+        logging.basicConfig(
+            level=log_config.get('level', 'INFO'),
+            handlers=log_handlers,
+            force=True
         )
         
+        self.logger = logging.getLogger('XRPLMonitor')
+        if debug:
+            self.logger.info("Debug mode enabled")
+
+    async def connect(self) -> bool:
+        """Establish connection to XRPL with retry logic"""
         try:
+            if self.client:
+                await self.client.close()
+            
+            self.logger.info(f"Connecting to {self.websocket_url}...")
+            self.client = AsyncWebsocketClient(self.websocket_url)
+            await self.client.open()
+            self.logger.info("Connected to XRPL")
+            self.logger.info(f"Follower wallet address: {self.follower_wallet.classic_address}")
+
+            subscribe_request = Subscribe(
+                streams=[StreamParameter.TRANSACTIONS],
+                accounts=[self.target_wallet]
+            )
+            
             response = await self.client.send(subscribe_request)
-            print(f"Subscription response: {response}")
-            print(f"Subscribed to target wallet: {self.target_wallet}")
+            self.logger.info(f"Subscribed to target wallet: {self.target_wallet}")
+            
+            self.reconnect_count = 0
+            return True
+
         except Exception as e:
-            print(f"Subscription error: {str(e)}")
-            raise
+            self.logger.error(f"Connection error: {str(e)}")
+            return False
 
     async def handle_transaction(self, tx: Dict[str, Any]):
         """Process incoming transactions"""
         transaction_data = tx.get("transaction", {})
-        # *** CHANGE MADE HERE: Check that transaction's Account matches the target_wallet ***
         if transaction_data.get("TransactionType") == "TrustSet" and transaction_data.get("Account") == self.target_wallet:
             await self.handle_trust_set(transaction_data)
 
@@ -68,31 +99,28 @@ class XRPLTokenMonitor:
         if not all([currency, issuer, limit]):
             return
 
-        print(f"\nDetected new trust line from target wallet:")
-        print(f"Currency: {currency}")
-        print(f"Issuer: {issuer}")
-        print(f"Limit: {limit}")
+        self.logger.info(f"Detected new trust line from target wallet:")
+        self.logger.info(f"Currency: {currency}")
+        self.logger.info(f"Issuer: {issuer}")
+        self.logger.info(f"Limit: {limit}")
 
-        # Set our own trust line
         try:
             await self.set_trust_line(currency, issuer, limit)
-            # Make a small purchase
             await self.make_small_purchase(currency, issuer)
         except Exception as e:
-            print(f"Error: {str(e)}")
+            self.logger.error(f"Error handling trust set: {str(e)}")
 
     async def set_trust_line(self, currency: str, issuer: str, limit: str):
         """Set a trust line for the token"""
-        print(f"Setting trust line for {currency}...")
+        self.logger.info(f"Setting trust line for {currency}...")
         
-        # Use the configured trust line amount, but don't exceed the original limit
         trust_limit = min(
             float(limit), 
-            float(self.max_trust_line_amount)
+            float(self.config.get('trading', 'max_trust_line_amount'))
         )
         trust_limit = max(
             trust_limit, 
-            float(self.min_trust_line_amount)
+            float(self.config.get('trading', 'min_trust_line_amount'))
         )
         
         trust_set_tx = TrustSet(
@@ -110,18 +138,19 @@ class XRPLTokenMonitor:
                 client=self.client,
                 wallet=self.follower_wallet
             )
-            print(f"Trust line set: {response.result.get('meta').get('TransactionResult')}")
+            result = response.result.get('meta', {}).get('TransactionResult')
+            self.logger.info(f"Trust line set: {result}")
             
-            if response.result.get('meta').get('TransactionResult') != "tesSUCCESS":
-                raise Exception(f"Trust line setting failed: {response.result.get('meta').get('TransactionResult')}")
+            if result != "tesSUCCESS":
+                raise Exception(f"Trust line setting failed: {result}")
                 
         except Exception as e:
-            print(f"Error setting trust line: {str(e)}")
+            self.logger.error(f"Error setting trust line: {str(e)}")
             raise
 
     async def make_small_purchase(self, currency: str, issuer: str):
         """Make a small purchase of the token"""
-        print(f"Attempting small purchase of {currency}...")
+        self.logger.info(f"Attempting small purchase of {currency}...")
         
         payment = Payment(
             account=self.follower_wallet.classic_address,
@@ -129,7 +158,7 @@ class XRPLTokenMonitor:
             amount=IssuedCurrencyAmount(
                 currency=currency,
                 issuer=issuer,
-                value=self.initial_purchase_amount
+                value=self.config.get('trading', 'initial_purchase_amount')
             )
         )
         
@@ -139,56 +168,89 @@ class XRPLTokenMonitor:
                 client=self.client,
                 wallet=self.follower_wallet
             )
-            print(f"Purchase attempt result: {response.result.get('meta').get('TransactionResult')}")
+            result = response.result.get('meta', {}).get('TransactionResult')
+            self.logger.info(f"Purchase attempt result: {result}")
             
-            if response.result.get('meta').get('TransactionResult') != "tesSUCCESS":
-                raise Exception(f"Purchase failed: {response.result.get('meta').get('TransactionResult')}")
+            if result != "tesSUCCESS":
+                raise Exception(f"Purchase failed: {result}")
                 
         except Exception as e:
-            print(f"Error making purchase: {str(e)}")
+            self.logger.error(f"Error making purchase: {str(e)}")
             raise
 
     async def monitor(self):
-        """Main monitoring loop"""
-        print("Starting monitoring...")
-        try:
-            async for message in self.client:
-                if isinstance(message, str):
-                    try:
-                        data = json.loads(message)
-                    except json.JSONDecodeError:
-                        print(f"Failed to parse message: {message}")
+        """Main monitoring loop with reconnection logic"""
+        self.is_running = True
+        self.logger.info("Starting monitoring...")
+        
+        while self.is_running:
+            try:
+                if not self.client or not self.client.is_open():
+                    max_attempts = self.config.get('network', 'max_reconnect_attempts')
+                    if self.reconnect_count >= max_attempts:
+                        self.logger.error(f"Maximum reconnection attempts ({max_attempts}) reached. Stopping monitor...")
+                        self.is_running = False
+                        break
+                    
+                    self.logger.info(f"Attempting reconnection ({self.reconnect_count + 1}/{max_attempts})...")
+                    if not await self.connect():
+                        self.reconnect_count += 1
+                        await asyncio.sleep(self.config.get('network', 'reconnect_delay_seconds'))
                         continue
-                else:
-                    data = message
-                
-                if "type" in data and data["type"] == "transaction":
-                    await self.handle_transaction(data)
-                
-        except KeyboardInterrupt:
-            print("\nStopping monitor...")
-        except Exception as e:
-            print(f"Error in monitoring loop: {str(e)}")
-        finally:
-            if self.client:
-                await self.client.close()
+
+                async for message in self.client:
+                    if not self.is_running:
+                        break
+                        
+                    if isinstance(message, str):
+                        try:
+                            data = json.loads(message)
+                        except json.JSONDecodeError:
+                            self.logger.error(f"Failed to parse message: {message}")
+                            continue
+                    else:
+                        data = message
+                    
+                    if "type" in data and data["type"] == "transaction":
+                        await self.handle_transaction(data)
+                    
+            except asyncio.CancelledError:
+                self.logger.info("Monitoring cancelled...")
+                self.is_running = False
+                break
+            except Exception as e:
+                self.logger.error(f"Error in monitoring loop: {str(e)}")
+                self.reconnect_count += 1
+                await asyncio.sleep(self.config.get('network', 'reconnect_delay_seconds'))
+                continue
+
+        if self.client:
+            await self.client.close()
+
+    async def stop(self):
+        """Gracefully stop the monitor"""
+        self.is_running = False
+        if self.client:
+            await self.client.close()
 
 async def main():
-    # Load configuration from environment variables
-    target_wallet = os.getenv('TARGET_WALLET')
-    follower_seed = os.getenv('FOLLOWER_SEED')
-    websocket_url = os.getenv('XRPL_WEBSOCKET_URL')
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='XRPL Token Monitor')
+    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
+    args = parser.parse_args()
 
-    # Validate required environment variables
-    if not all([target_wallet, follower_seed, websocket_url]):
-        print("Error: Missing required environment variables.")
-        print("Please ensure TARGET_WALLET, FOLLOWER_SEED, and XRPL_WEBSOCKET_URL are set in .env")
+    # Load and validate configuration
+    config = Config()
+    if not config.validate():
         return
 
-    monitor = XRPLTokenMonitor(target_wallet, follower_seed, websocket_url)
+    monitor = XRPLTokenMonitor(config, debug=args.debug)
     try:
         await monitor.connect()
         await monitor.monitor()
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+        await monitor.stop()
     except Exception as e:
         print(f"Fatal error: {str(e)}")
     finally:

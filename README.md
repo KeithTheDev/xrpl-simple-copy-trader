@@ -10,41 +10,29 @@ This repository provides a degen-friendly, easy-to-get-started, Python-based cop
 
 ## Prerequisites
 
-- **Python 3.7+**: Ensure Python is installed and up-to-date.
+- **Python 3.10+**: Ensure Python is installed and up-to-date.
 - **Pip & Virtual Environment**: Use a virtual environment for isolated dependency management.
 - **Network Access**:  
   - Testnet endpoint example: `wss://s.altnet.rippletest.net:51233`
 - **Funded XRPL Accounts**:  
-  - **Target Wallet**: The account whose transactions you’ll monitor.  
+  - **Target Wallet**: The account whose transactions you'll monitor.  
   - **Follower Wallet**: The account that will respond by setting trust lines and making purchases. **Important:** This follower account must be funded on the XRPL testnet to avoid `actNotFound` errors.
 
-## Environment Variables
+## Configuration
 
-Create a `.env` file in the repository root with the following variables:
+1. Copy `example.config.local.yaml` to `config.local.yaml`
+2. Update `config.local.yaml` with your:
+   - Target wallet address (wallet to monitor)
+   - Follower wallet seed (your wallet that will copy the trades)
+   - Other optional settings as needed
 
-- `TARGET_WALLET`: The XRPL classic address of the target wallet.
-- `FOLLOWER_SEED`: The secret seed for the follower account. **Keep this secret.**
-- `XRPL_WEBSOCKET_URL`: The XRPL WebSocket endpoint.
-
-Optional environment variables:
-- `INITIAL_PURCHASE_AMOUNT`: How much of the issued currency to purchase after setting a trust line. Default: `1`.
-- `MIN_TRUST_LINE_AMOUNT`: Minimum trust line amount to set. Default: `1000`.
-- `MAX_TRUST_LINE_AMOUNT`: Maximum trust line amount to set. Default: `10000`.
+The configuration includes:
+- Network settings (WebSocket endpoint, reconnection behavior)
+- Trading parameters (purchase amounts, trust line limits)
+- Logging preferences
 
 **How MIN and MAX Trust Line Amounts Work:**
-When a new trust line is detected, the code takes the trust limit specified in that transaction and ensures it falls within the range defined by `MIN_TRUST_LINE_AMOUNT` and `MAX_TRUST_LINE_AMOUNT`. If the original limit is lower than `MIN_TRUST_LINE_AMOUNT`, it is raised to that minimum. If it exceeds `MAX_TRUST_LINE_AMOUNT`, it is capped at that maximum. This mechanism helps maintain a controlled and safe exposure level for your trust lines.
-
-** Example `.env`:**
-
-   ```env
-   TARGET_WALLET=rXXXXXXXXXXXXXXX
-   FOLLOWER_SEED=sXXXXXXXXXXXXXXX
-   XRPL_WEBSOCKET_URL=wss://s.altnet.rippletest.net:51233
-   INITIAL_PURCHASE_AMOUNT=1
-   MIN_TRUST_LINE_AMOUNT=1000
-   MAX_TRUST_LINE_AMOUNT=10000
-   ```
-
+When a new trust line is detected, the code takes the trust limit specified in that transaction and ensures it falls within the range defined by `min_trust_line_amount` and `max_trust_line_amount`. If the original limit is lower than `min_trust_line_amount`, it is raised to that minimum. If it exceeds `max_trust_line_amount`, it is capped at that maximum. This mechanism helps maintain a controlled and safe exposure level for your trust lines.
 
 ## Generating a Follower Wallet
 
@@ -54,8 +42,6 @@ Use the included `wallet_generator.py` script to quickly create a new wallet and
    python wallet_generator.py
    ```
 Example Output:
-
-
    ```json
    {
      "public_address": "rExampleAddress123...",
@@ -63,12 +49,7 @@ Example Output:
    }
    ```
 
-Add this to your .env file:
-FOLLOWER_SEED=sExampleSeed123...
-Your public address is: rExampleAddress123...
-
-Copy the FOLLOWER_SEED into your .env file and fund the newly created address with testnet XRP from the XRP Testnet Faucet.
-
+Copy these values into your `config.local.yaml` file and fund the newly created address with testnet XRP from the XRP Testnet Faucet.
 
 ## Installation
 
@@ -84,9 +65,9 @@ Copy the FOLLOWER_SEED into your .env file and fund the newly created address wi
    ```
 3. **Install Dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip3 install -r requirements.txt
    ```
-4. Set Up Environment Variables: Create your .env file as described above.
+4. **Configure**: Set up your config.local.yaml as described above.
 
 ## Running the Monitor
 
@@ -102,7 +83,7 @@ After ensuring both the target and follower accounts are funded:
   The follower account is not active on the ledger. Fund it via the [XRP Testnet Faucet](https://xrpl.org/xrp-testnet-faucet.html).
 
 - **Unexpected TrustSet Transactions**:  
-  Ensure the code checks the transaction’s `Account` field to verify that the target wallet is the originator before reacting.
+  Ensure the code checks the transaction's `Account` field to verify that the target wallet is the originator before reacting.
 
 ## Contributing
 
