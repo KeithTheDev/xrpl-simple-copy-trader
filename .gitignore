@@ -1,0 +1,24 @@
+# Python bytecode and intermediate files
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# Virtual environment directories
+venv/
+.env/
+
+# Environment variable files
+.env
+
+# Build and distribution directories
+build/
+dist/
+*.egg-info/
+
+# IDE and editor configuration files
+.vscode/
+.idea/
+
+# MacOS system files
+.DS_Store
