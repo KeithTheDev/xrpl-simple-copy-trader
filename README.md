@@ -1,4 +1,4 @@
-# Simple XRPL Copy Trader
+A Simple XRPL Copy-Trader
 
 This repository provides a degen-friendly, easy-to-get-started, Python-based copy-trader for the XRP Ledger (XRPL). The tool connects to an XRPL WebSocket endpoint, subscribes to transaction streams for a specified target wallet, and automatically responds to newly created trust lines by setting a corresponding trust line and attempting a small token purchase.
 
