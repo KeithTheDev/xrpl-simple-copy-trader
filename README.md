@@ -1,4 +1,4 @@
-# Simple XRPL Copy Trader
+# A Simple XRPL Copy-Trader
 
 This repository provides a degen-friendly, easy-to-get-started, Python-based copy-trader for the XRP Ledger (XRPL). The tool connects to an XRPL WebSocket endpoint, subscribes to transaction streams for a specified target wallet, and automatically responds to newly created trust lines by setting a corresponding trust line and attempting a small token purchase.
 
@@ -55,8 +55,8 @@ Copy these values into your `config.local.yaml` file and fund the newly created 
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/KeithTheDev/xrpl-simple-copytrader.git
-   cd xrpl-simple-copytrader
+   git clone https://github.com/KeithTheDev/xrpl-simple-copy-trader.git
+   cd xrpl-simple-copy-trader
    ```
 2. **Create and Activate a Virtual Environment**:
    ```bash
