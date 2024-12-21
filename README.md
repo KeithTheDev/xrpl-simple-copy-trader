@@ -1,95 +1,199 @@
-# A Simple XRPL Copy-Trader
+# XRPL Token Monitor
 
-This repository provides a degen-friendly, easy-to-get-started, Python-based copy-trader for the XRP Ledger (XRPL). The tool connects to an XRPL WebSocket endpoint, subscribes to transaction streams for a specified target wallet, and automatically responds to newly created trust lines by setting a corresponding trust line and attempting a small token purchase.
+A robust, production-ready Python implementation for monitoring and automatically mirroring trust line operations on the XRP Ledger (XRPL). This tool provides real-time monitoring of specified wallets, automatic trust line replication, and configurable token purchasing capabilities.
 
-## Features
+## Key Features
 
-- **Automatic Trust Line Detection**: Monitors a target XRPL account for new `TrustSet` transactions.
-- **Responsive Trust Line Creation**: When a trust line is detected from the target wallet, the follower (your) account automatically sets a corresponding trust line.
-- **Small Purchase Attempt**: After establishing the trust line, the tool attempts a small token purchase to confirm and exercise that trust line.
+- **Real-time Transaction Monitoring**: Establishes WebSocket connections to track XRPL transactions in real-time
+- **Intelligent Trust Line Management**: 
+  - Automatically detects and validates trust line operations
+  - Implements configurable limits for trust line amounts
+  - Ensures safe and controlled exposure levels
+- **Automated Token Purchases**:
+  - Configurable purchase amounts
+  - Built-in safety mechanisms
+  - Transaction validation
+- **Production-Ready Features**:
+  - Comprehensive error handling
+  - Automatic reconnection logic
+  - Detailed logging system
+  - Test mode for safe deployment validation
+  - Configuration management with local overrides
 
-## Prerequisites
+## System Requirements
 
-- **Python 3.10+**: Ensure Python is installed and up-to-date.
-- **Pip & Virtual Environment**: Use a virtual environment for isolated dependency management.
-- **Network Access**:  
-  - Testnet endpoint example: `wss://s.altnet.rippletest.net:51233`
-- **Funded XRPL Accounts**:  
-  - **Target Wallet**: The account whose transactions you'll monitor.  
-  - **Follower Wallet**: The account that will respond by setting trust lines and making purchases. **Important:** This follower account must be funded on the XRPL testnet to avoid `actNotFound` errors.
-
-## Configuration
-
-1. Copy `example.config.local.yaml` to `config.local.yaml`
-2. Update `config.local.yaml` with your:
-   - Target wallet address (wallet to monitor)
-   - Follower wallet seed (your wallet that will copy the trades)
-   - Other optional settings as needed
-
-The configuration includes:
-- Network settings (WebSocket endpoint, reconnection behavior)
-- Trading parameters (purchase amounts, trust line limits)
-- Logging preferences
-
-**How MIN and MAX Trust Line Amounts Work:**
-When a new trust line is detected, the code takes the trust limit specified in that transaction and ensures it falls within the range defined by `min_trust_line_amount` and `max_trust_line_amount`. If the original limit is lower than `min_trust_line_amount`, it is raised to that minimum. If it exceeds `max_trust_line_amount`, it is capped at that maximum. This mechanism helps maintain a controlled and safe exposure level for your trust lines.
-
-## Generating a Follower Wallet
-
-Use the included `wallet_generator.py` script to quickly create a new wallet and retrieve its seed and address. **Note:** This is primarily useful for testnet development, not for production use.
-
-   ```bash
-   python wallet_generator.py
-   ```
-Example Output:
-   ```json
-   {
-     "public_address": "rExampleAddress123...",
-     "seed": "sExampleSeed123..."
-   }
-   ```
-
-Copy these values into your `config.local.yaml` file and fund the newly created address with testnet XRP from the XRP Testnet Faucet.
+- Python 3.10 or higher
+- Network access for XRPL WebSocket connections
+- Sufficient system memory for continuous operation
+- Storage space for logging (if enabled)
 
 ## Installation
 
-1. **Clone the Repository**:
+1. **Set Up Python Environment**:
    ```bash
-   git clone https://github.com/KeithTheDev/xrpl-simple-copy-trader.git
-   cd xrpl-simple-copy-trader
+   python -m venv venv
+   source venv/bin/activate  # On Windows: .\venv\Scripts\activate
    ```
-2. **Create and Activate a Virtual Environment**:
+
+2. **Install Dependencies**:
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
    ```
-3. **Install Dependencies:**
+
+3. **Generate Configuration**:
    ```bash
-   pip3 install -r requirements.txt
+   cp example.config.local.yaml config.local.yaml
    ```
-4. **Configure**: Set up your config.local.yaml as described above.
+
+## Wallet Setup
+
+Use the included wallet generation utility to create new XRPL wallets:
+
+```bash
+python generate_wallet.py
+```
+
+The script will output wallet details in this format:
+```json
+{
+  "public_address": "rXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "seed": "sXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
+```
+
+## Configuration
+
+### Basic Configuration
+Update `config.local.yaml` with:
+- Target wallet address (wallet to monitor)
+- Follower wallet seed (your operational wallet)
+- WebSocket endpoint URL
+- Trading parameters
+
+### Advanced Settings
+
+#### Trust Line Controls
+```yaml
+trading:
+  min_trust_line_amount: "100"
+  max_trust_line_amount: "10000"
+  initial_purchase_amount: "10"
+```
+
+#### Logging Configuration
+```yaml
+logging:
+  filename: "monitor.log"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+```
 
 ## Running the Monitor
 
-After ensuring both the target and follower accounts are funded:
+### Standard Operation
+```bash
+python main.py
+```
 
-   ```bash
-   python main.py
-   ```
+### Debug Mode
+```bash
+python main.py --debug
+```
 
-## Common Issues
+### Test Mode
+```bash
+python main.py --test
+```
 
-- **`actNotFound: Account not found`**:  
-  The follower account is not active on the ledger. Fund it via the [XRP Testnet Faucet](https://xrpl.org/xrp-testnet-faucet.html).
+## Operational Features
 
-- **Unexpected TrustSet Transactions**:  
-  Ensure the code checks the transaction's `Account` field to verify that the target wallet is the originator before reacting.
+### Error Handling
+- Automatic reconnection on network issues
+- Transaction validation
+- Comprehensive error logging
+- Graceful shutdown handling
+
+### Safety Mechanisms
+- Test mode for validation
+- Configurable trust line limits
+- Transaction amount constraints
+- Automatic error recovery
+
+### Monitoring and Logging
+- Detailed transaction logging
+- Operation status tracking
+- Error reporting
+- Performance metrics (when enabled)
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Errors**
+   - Verify network connectivity
+   - Check WebSocket endpoint availability
+   - Confirm firewall settings
+
+2. **Transaction Failures**
+   - Ensure sufficient XRP balance
+   - Verify trust line limits
+   - Check transaction parameters
+
+3. **Configuration Issues**
+   - Validate YAML syntax
+   - Confirm wallet credentials
+   - Check file permissions
+
+### Debug Mode
+Enable detailed logging with:
+```bash
+python main.py --debug
+```
+
+## Best Practices
+
+1. **Production Deployment**
+   - Use a dedicated server/instance
+   - Implement proper monitoring
+   - Regular log rotation
+   - Secure credential management
+
+2. **Risk Management**
+   - Start with test mode
+   - Use conservative trust line limits
+   - Monitor transaction patterns
+   - Regular balance checks
+
+3. **Maintenance**
+   - Regular log review
+   - Performance monitoring
+   - Configuration updates
+   - System updates
 
 ## Contributing
 
-Contributions are welcome!  
-Please open an issue or submit a pull request with improvements, fixes, or ideas.
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to your branch
+5. Create a Pull Request
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Security Considerations
+
+- Secure storage of wallet seeds
+- Regular security audits
+- Network security best practices
+- Access control implementation
+
+## Support
+
+For issues and feature requests, please use the GitHub issue tracker.
+
+---
+
+**Disclaimer**: This software is provided "as is" without warranty of any kind. Use at your own risk.
