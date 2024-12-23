@@ -36,6 +36,13 @@ class Config:
             'level': "INFO",
             'format': "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             'filename': "xrpl_trader.log"
+        },
+        'trading': {
+            'initial_purchase_amount': "1",
+            'min_trust_line_amount': "1000",
+            'max_trust_line_amount': "10000",
+            'send_max_xrp': "85",
+            'slippage_percent': "5"
         }
     }
 

@@ -20,3 +20,17 @@ logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   filename: "xrpl_trader.log"
+
+monitoring:
+  min_trade_volume: 1000
+  min_trust_lines: 5
+  data_file: "token_data.json"  # Valfritt, default är 'token_data.json'
+  save_interval_minutes: 5  # Spara var 5:e minut
+
+# Trading configuration
+trading:
+  initial_purchase_amount: "1"
+  min_trust_line_amount: "1000"
+  max_trust_line_amount: "10000"
+  send_max_xrp: "85"      # Maximum XRP to spend per purchase
+  slippage_percent: "5"    # Allowed slippage in percent

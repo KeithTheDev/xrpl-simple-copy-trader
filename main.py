@@ -3,12 +3,12 @@ import json
 import logging
 import argparse
 from typing import Any, Dict
-from datetime import datetime
+import websockets.exceptions
 
 from xrpl.asyncio.clients import AsyncWebsocketClient
 from xrpl.asyncio.transaction import submit_and_wait
 from xrpl.models.amounts import IssuedCurrencyAmount
-from xrpl.models.requests import Subscribe
+from xrpl.models.requests import Subscribe, Ping
 from xrpl.models.transactions import Payment, TrustSet
 from xrpl.wallet import Wallet
 
@@ -23,8 +23,11 @@ class XRPLTokenMonitor:
         self.is_running = False
         self.test_mode = test_mode
         
-        # Track discovered tokens
-        self.known_tokens = {}  # {currency: {'issuer': str, 'first_seen': datetime}}
+        # Heartbeat settings
+        self.ping_interval = 30  # Send ping every 30 seconds
+        self.ping_timeout = 10   # Wait 10 seconds for pong response
+        self.last_pong = None
+        self.ping_task = None
 
         # Setup logging
         self.logger = logging.getLogger('XRPLMonitor')
@@ -40,7 +43,7 @@ class XRPLTokenMonitor:
             
             # Console handler
             console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+            console_handler.setFormatter(logging.Formatter('%(message)s'))
             self.logger.addHandler(console_handler)
 
         if debug:
@@ -65,8 +68,10 @@ class XRPLTokenMonitor:
             float(self.config.get('trading', 'min_trust_line_amount'))
         )
         
+        # Create TrustSet transaction with fee
         trust_set_tx = TrustSet(
             account=self.follower_wallet.classic_address,
+            fee="12",  # Standard fee in drops (0.000012 XRP)
             limit_amount=IssuedCurrencyAmount(
                 currency=currency,
                 issuer=issuer,
@@ -91,22 +96,40 @@ class XRPLTokenMonitor:
             raise
 
     async def make_small_purchase(self, client: AsyncWebsocketClient, currency: str, issuer: str):
-        """Make a small purchase of the token"""
+        """Make a small purchase of the token using path-finding"""
         amount = self.config.get('trading', 'initial_purchase_amount')
+        send_max_xrp = self.config.get('trading', 'send_max_xrp')
+        slippage = float(self.config.get('trading', 'slippage_percent')) / 100.0
         
         if self.test_mode:
             self.logger.info(f"TEST MODE: Would make purchase of {currency} amount: {amount}")
             return
 
-        self.logger.info(f"Attempting small purchase of {currency}...")
+        self.logger.info(f"Attempting purchase of {currency}...")
         
+        # Calculate min/max delivery amounts with configured slippage
+        target_amount = float(amount)
+        min_amount = target_amount * (1 - slippage)
+        max_amount = target_amount * (1 + slippage)
+        
+        # Convert send_max to drops (multiply by 1M)
+        send_max_drops = str(int(float(send_max_xrp) * 1_000_000))
+        
+        # Create Payment transaction with SendMax and Deliver range
         payment = Payment(
             account=self.follower_wallet.classic_address,
-            destination=issuer,
+            destination=self.follower_wallet.classic_address,  # Send to self
+            fee="12",  # Standard fee in drops
+            send_max=send_max_drops,
             amount=IssuedCurrencyAmount(
                 currency=currency,
                 issuer=issuer,
-                value=amount
+                value=str(max_amount)
+            ),
+            deliver_min=IssuedCurrencyAmount(
+                currency=currency,
+                issuer=issuer,
+                value=str(min_amount)
             )
         )
         
@@ -121,6 +144,12 @@ class XRPLTokenMonitor:
             
             if result != "tesSUCCESS":
                 raise Exception(f"Purchase failed: {result}")
+            
+            # Log delivered amount if available
+            delivered = response.result.get('meta', {}).get('delivered_amount')
+            if delivered and isinstance(delivered, dict):
+                self.logger.info(f"Actually delivered: {delivered.get('value')} {delivered.get('currency')}")
+                self.logger.info(f"Used {float(send_max_xrp)} XRP max")
                 
         except Exception as e:
             self.logger.error(f"Error making purchase: {str(e)}")
@@ -142,29 +171,49 @@ class XRPLTokenMonitor:
         if not all([currency, issuer, limit]):
             return
 
-        self.logger.info(f"Target wallet set new trust line:")
-        self.logger.info(f"  Currency: {currency}")
-        self.logger.info(f"  Issuer: {issuer}")
-        self.logger.info(f"  Limit: {limit}")
+        self.logger.info(f"\n🔗 Target wallet set new trust line:")
+        self.logger.info(f"   Currency: {currency}")
+        self.logger.info(f"   Issuer: {issuer}")
+        self.logger.info(f"   Limit: {limit}\n")
 
-        token_key = f"{currency}:{issuer}"
-        if token_key not in self.known_tokens:
-            self.known_tokens[token_key] = {
-                'currency': currency,
-                'issuer': issuer,
-                'first_seen': datetime.now()
-            }
-            
-            # Set our own trust line and make initial purchase
-            try:
-                await self.set_trust_line(client, currency, issuer, limit)
-                await self.make_small_purchase(client, currency, issuer)
-            except Exception as e:
-                self.logger.error(f"Error handling trust set: {str(e)}")
+        # Set our own trust line and make initial purchase
+        try:
+            await self.set_trust_line(client, currency, issuer, limit)
+            await self.make_small_purchase(client, currency, issuer)
+        except Exception as e:
+            self.logger.error(f"Error handling trust set: {str(e)}")
+
+    async def _heartbeat(self, client: AsyncWebsocketClient):
+        """Send periodic pings and monitor for pong responses"""
+        try:
+            while True:
+                await asyncio.sleep(self.ping_interval)
+                
+                # Check if we've missed too many pongs
+                if self.last_pong and (asyncio.get_event_loop().time() - self.last_pong) > (self.ping_interval + self.ping_timeout):
+                    self.logger.error("Connection appears dead (no pong received)")
+                    # Force the connection to close, which will trigger a reconnect
+                    raise websockets.exceptions.ConnectionClosed(1006, "No pong received")
+                
+                # Send ping - using XRPL's native Ping request
+                try:
+                    ping = Ping()
+                    await client.send(ping)
+                    if self.logger.isEnabledFor(logging.DEBUG):
+                        self.logger.debug("Ping sent")
+                except Exception as e:
+                    self.logger.error(f"Failed to send ping: {str(e)}")
+                    raise
+                    
+        except asyncio.CancelledError:
+            # Clean shutdown
+            pass
 
     async def monitor(self):
         """Main monitoring loop"""
         self.is_running = True
+        reconnect_delay = 5  # Starting delay in seconds
+        max_delay = 320  # Maximum delay (~5 minutes)
         
         while self.is_running:
             try:
@@ -178,80 +227,88 @@ class XRPLTokenMonitor:
                     # Subscribe to target wallet
                     subscribe_request = Subscribe(accounts=[self.target_wallet])
                     await client.send(subscribe_request)
-                    self.logger.info(f"Subscribed to target wallet transactions")
+                    self.logger.info(f"Subscribed to target wallet: {self.target_wallet}")
+                    
+                    # Start heartbeat
+                    self.last_pong = asyncio.get_event_loop().time()
+                    self.ping_task = asyncio.create_task(self._heartbeat(client))
+                    
+                    # Reset reconnect delay on successful connection
+                    reconnect_delay = 5
                     
                     # Monitor incoming messages
                     async for message in client:
                         if not self.is_running:
                             break
                             
-                        # Log raw message in debug mode
-                        self.logger.debug(f"Received websocket message: {message}")
-                            
                         # Handle message
                         if isinstance(message, str):
                             try:
                                 data = json.loads(message)
-                                self.logger.debug(f"Parsed JSON data: {json.dumps(data, indent=2)}")
+                                
+                                # Handle pong responses
+                                if data.get("type") == "response":
+                                    self.last_pong = asyncio.get_event_loop().time()
+                                    if self.logger.isEnabledFor(logging.DEBUG):
+                                        self.logger.debug("Pong received")
+                                    continue
+                                    
                             except json.JSONDecodeError:
-                                self.logger.error(f"Failed to parse message: {message}")
+                                self.logger.error(f"Failed to parse message")
                                 continue
                         else:
                             data = message
-                            self.logger.debug(f"Received data object: {data}")
 
-                        # Process transaction if appropriate
+                        # Process validated transactions
                         if data.get("type") == "transaction" and data.get("validated", False):
-                            tx = data.get("transaction", {})
-                            
-                            # Handle transactions
+                            tx = data.get("tx_json", {})
                             tx_type = tx.get("TransactionType")
+                            
+                            if self.logger.isEnabledFor(logging.DEBUG):
+                                self.logger.debug(f"Got {tx_type} from target wallet")
+                            
                             if tx_type == "TrustSet":
-                                # Print all TrustSet transactions from our target wallet
-                                if tx.get("Account") == self.target_wallet:
-                                    limit_amount = tx.get("LimitAmount", {})
-                                    if isinstance(limit_amount, dict):
-                                        currency = limit_amount.get("currency")
-                                        issuer = limit_amount.get("issuer")
-                                        value = limit_amount.get("value")
-                                        
-                                        # If value is "0", the trust line is being removed
-                                        if value == "0":
-                                            print(f"\n🗑️  Target wallet removed trust line:")
-                                            print(f"   Currency: {currency}")
-                                            print(f"   Issuer: {issuer}\n")
-                                        else:
-                                            print(f"\n🔗 Target wallet set new trust line:")
-                                            print(f"   Currency: {currency}")
-                                            print(f"   Issuer: {issuer}")
-                                            print(f"   Value: {value}\n")
-                                
                                 await self.handle_trust_set(client, tx)
 
             except asyncio.CancelledError:
                 self.logger.info("Monitoring cancelled...")
                 break
-            except Exception as e:
-                self.logger.error(f"Connection error: {str(e)}")
+                
+            except websockets.exceptions.ConnectionClosed as e:
+                self.logger.error(f"WebSocket connection closed: {str(e)}")
                 if self.is_running:
-                    self.logger.info("Reconnecting in 5 seconds...")
-                    await asyncio.sleep(5)
-                continue
+                    self.logger.info(f"Reconnecting in {reconnect_delay} seconds...")
+                    await asyncio.sleep(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, max_delay)
+                    
+            except websockets.exceptions.WebSocketException as e:
+                self.logger.error(f"WebSocket error: {str(e)}")
+                if self.is_running:
+                    self.logger.info(f"Reconnecting in {reconnect_delay} seconds...")
+                    await asyncio.sleep(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, max_delay)
+                    
+            except Exception as e:
+                self.logger.error(f"Unexpected error: {str(e)}")
+                if self.is_running:
+                    self.logger.info(f"Reconnecting in {reconnect_delay} seconds...")
+                    await asyncio.sleep(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, max_delay)
+            
+            finally:
+                # Cleanup heartbeat task
+                if self.ping_task:
+                    self.ping_task.cancel()
+                    try:
+                        await self.ping_task
+                    except asyncio.CancelledError:
+                        pass
+                    self.ping_task = None
 
     async def stop(self):
         """Gracefully stop the monitor"""
         self.logger.info("Stopping monitor...")
         self.is_running = False
-        
-        # Log final statistics
-        self.logger.info("\nFinal Statistics:")
-        self.logger.info(f"Total unique tokens discovered: {len(self.known_tokens)}")
-        
-        # Log details for each token
-        for stats in self.known_tokens.values():
-            self.logger.info(f"\nToken: {stats['currency']}")
-            self.logger.info(f"  Issuer: {stats['issuer']}")
-            self.logger.info(f"  First seen: {stats['first_seen']}")
 
 async def main():
     # Parse command line arguments
