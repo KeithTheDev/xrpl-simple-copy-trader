@@ -19,6 +19,8 @@ def mock_config():
             ('trading', 'initial_purchase_amount'): '1',
             ('trading', 'min_trust_line_amount'): '1000',
             ('trading', 'max_trust_line_amount'): '10000',
+            ('trading', 'send_max_xrp'): '85',
+            ('trading', 'slippage_percent'): '5',
             ('logging',): {'filename': 'xrpl_trader.log', 'format': '%(message)s'},
         }
         return config_values.get(args, kwargs.get('default'))
@@ -127,4 +129,8 @@ async def test_successful_trust_set(monitor, mock_client):
         first_call = mock_submit.call_args_list[0]
         second_call = mock_submit.call_args_list[1]
         assert first_call[1]['transaction'].transaction_type == "TrustSet"
-        assert second_call[1]['transaction'].transaction_type == "Payment"
+        
+        payment_tx = second_call[1]['transaction']
+        assert payment_tx.transaction_type == "Payment"
+        assert payment_tx.flags == 0x00020000  # tfPartialPayment flag
+        assert hasattr(payment_tx, 'deliver_min')

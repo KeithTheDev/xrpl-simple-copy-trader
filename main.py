@@ -107,24 +107,24 @@ class XRPLTokenMonitor:
 
         self.logger.info(f"Attempting purchase of {currency}...")
         
-        # Calculate min/max delivery amounts with configured slippage
+        # Calculate min delivery amount with configured slippage
         target_amount = float(amount)
         min_amount = target_amount * (1 - slippage)
-        max_amount = target_amount * (1 + slippage)
         
         # Convert send_max to drops (multiply by 1M)
         send_max_drops = str(int(float(send_max_xrp) * 1_000_000))
         
-        # Create Payment transaction with SendMax and Deliver range
+        # tfPartialPayment = 0x00020000
         payment = Payment(
             account=self.follower_wallet.classic_address,
             destination=self.follower_wallet.classic_address,  # Send to self
             fee="12",  # Standard fee in drops
             send_max=send_max_drops,
+            flags=0x00020000,  # tfPartialPayment flag
             amount=IssuedCurrencyAmount(
                 currency=currency,
                 issuer=issuer,
-                value=str(max_amount)
+                value=str(target_amount)
             ),
             deliver_min=IssuedCurrencyAmount(
                 currency=currency,
@@ -154,6 +154,7 @@ class XRPLTokenMonitor:
         except Exception as e:
             self.logger.error(f"Error making purchase: {str(e)}")
             raise
+
 
     async def handle_trust_set(self, client: AsyncWebsocketClient, tx: Dict[str, Any]):
         """Handle TrustSet transactions from target wallet"""
