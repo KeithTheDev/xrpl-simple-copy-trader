@@ -11,6 +11,7 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
 - Heartbeat monitoring for connection health
 - Exponential backoff for reconnection attempts
 - Web interface for monitoring and control
+- MongoDB storage for transactions and analysis
 
 ### Market Monitor (`market_monitor.py`)
 - Tracks token trust line adoption rates
@@ -24,6 +25,7 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
 - Python 3.10+
 - Mac OS (start.sh tested on Mac)
 - Node.js and npm (for TailwindCSS)
+- MongoDB 4.x+ (for data storage)
 - Active XRPL node connection
 - Dependencies listed in `requirements.txt`
 
@@ -48,7 +50,18 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
    cp index.html templates/
    ```
 
-4. **Configure the application**:
+4. **Configure MongoDB**:
+   - Install MongoDB (on Mac):
+     ```bash
+     brew tap mongodb/brew
+     brew install mongodb-community
+     ```
+   - Start MongoDB service:
+     ```bash
+     brew services start mongodb-community
+     ```
+
+5. **Configure the application**:
    ```bash
    cp example.config.local.yaml config.local.yaml
    ```
@@ -129,6 +142,56 @@ With custom parameters:
 python market_monitor.py --min-volume 5000 --min-trust-lines 10
 ```
 
+## Data Storage
+
+The application uses MongoDB to store trust lines and purchases:
+
+### Collections
+
+1. **trustlines**:
+   - Tracks all trust lines set
+   - Includes currency, issuer, limit, timestamp
+   - Flags test mode transactions
+   - Indexed for currency/issuer combinations
+
+2. **purchases**:
+   - Records token purchases
+   - Stores amount, cost, transaction details
+   - Distinguishes between real and test transactions
+   - Indexed for efficient querying
+
+### Indexes
+- Currency and issuer combinations
+- Timestamp-based queries
+- Test mode filtering
+
+### Schema
+
+```javascript
+// trustlines collection
+{
+  _id: ObjectId,
+  currency: String,      // Token currency code
+  issuer: String,       // Token issuer address
+  limit: String,        // Trust line limit
+  timestamp: ISODate,   // When trust line was set
+  hash: String,         // Transaction hash
+  test_mode: Boolean    // If set in test mode
+}
+
+// purchases collection 
+{
+  _id: ObjectId,
+  currency: String,     // Token currency code
+  issuer: String,      // Token issuer address 
+  amount: String,      // Amount purchased
+  cost_xrp: String,    // XRP cost
+  timestamp: ISODate,  // When purchase was made
+  hash: String,        // Transaction hash
+  test_mode: Boolean   // If simulated purchase
+}
+```
+
 ## Safety Features
 
 ### Token Monitor
@@ -180,6 +243,7 @@ pytest -l
 ├── config.py              # Configuration management
 ├── generate_wallet.py     # Wallet generation utility
 ├── web_server.py          # Webserver for the monitoring web UI
+├── db_handler.py          # MongoDB interface
 ├── start.sh               # Start script for Mac
 ├── startOnLinux.sh        # Start script for Linux - not tested
 ├── templates/

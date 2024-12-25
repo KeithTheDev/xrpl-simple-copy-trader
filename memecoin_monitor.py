@@ -13,6 +13,7 @@ from xrpl.models.transactions import Payment, TrustSet
 from xrpl.wallet import Wallet
 
 from config import Config
+from db_handler import XRPLDatabase
 
 class XRPLTokenMonitor:
     def __init__(self, config: Config, debug: bool = False, test_mode: bool = False):
@@ -22,6 +23,7 @@ class XRPLTokenMonitor:
         self.websocket_url = config.get('network', 'websocket_url')
         self.is_running = False
         self.test_mode = test_mode
+        self.db = XRPLDatabase()
         
         # Heartbeat settings
         self.ping_interval = 30  # Send ping every 30 seconds
@@ -151,6 +153,16 @@ class XRPLTokenMonitor:
                 self.logger.info(f"Actually delivered: {delivered.get('value')} {delivered.get('currency')}")
                 self.logger.info(f"Used {float(send_max_xrp)} XRP max")
                 
+                # Add purchase to database
+                self.db.add_purchase(
+                    currency,
+                    issuer,
+                    delivered.get('value'),
+                    send_max_xrp,
+                    response.result.get('hash', 'Unknown'),
+                    self.test_mode
+                )
+                
         except Exception as e:
             self.logger.error(f"Error making purchase: {str(e)}")
             raise
@@ -175,6 +187,9 @@ class XRPLTokenMonitor:
         self.logger.info(f"   Currency: {currency}")
         self.logger.info(f"   Issuer: {issuer}")
         self.logger.info(f"   Limit: {limit}\n")
+
+        # Add trustline to database
+        self.db.add_trustline(currency, issuer, limit, tx.get('hash', 'Unknown'), self.test_mode)
 
         # Set our own trust line and make initial purchase
         try:
@@ -273,7 +288,7 @@ class XRPLTokenMonitor:
                                 self.logger.debug(f"Got {tx_type} (validated={validated}) from target wallet")
 
                             if validated:
-                                self.logger.info(f"Transaction {tx_hash} is now validated.")
+                                self.logger.debug(f"Transaction {tx_hash} is now validated.")
 
                             if validated and tx_type == "TrustSet":
                                 await self.handle_trust_set(client, tx)
