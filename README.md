@@ -83,25 +83,27 @@ monitoring:
 
 ### Generate a New Wallet
 
-```bash
-python generate_wallet.py
+```zsh
+python3 generate_wallet.py
 ```
 
 ### Token Monitor
 
+Experimental: The XPRL token monitor solution is started through a script. The script will start a webserver. Open http://0.0.0.0:8000 and start the token monitor from the web UI.
+
 Standard mode:
-```bash
-python main.py
+```zsh
+./start.sh
 ```
 
 Test mode (no actual transactions):
-```bash
-python main.py --test
+```zsh
+./start.sh --test
 ```
 
 Debug mode:
-```bash
-python main.py --debug
+```zsh
+./start.sh --debug
 ```
 
 ### Market Monitor
@@ -156,7 +158,7 @@ pytest
 pytest --cov=.
 
 # Run specific test file
-pytest test_main.py
+pytest test_memecoin_monitor.py
 
 # Run tests with detailed output
 pytest -v
@@ -167,12 +169,15 @@ pytest -l
 
 ### Project Structure
 ```
-├── main.py              # Token monitor implementation
+├── memecoin_monitor.py              # Token monitor implementation
 ├── market_monitor.py    # Market analysis implementation
 ├── config.py           # Configuration management
 ├── generate_wallet.py  # Wallet generation utility
+├── web_server.py       # Webserver for the monitoring web UI
+├── start.sh            # Start script for Mac
+├── startOnLinux.sh     # Start script for Linux - not tested
 ├── tests/
-│   ├── test_main.py
+│   ├── test_memecoin_monitor.py
 │   ├── test_config.py
 │   └── test_websocket.py
 └── config/

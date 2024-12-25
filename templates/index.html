@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XRPL Monitor Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div x-data="dashboard()" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow">
+            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center space-x-4">
+                        <h1 class="text-3xl font-bold text-gray-900">XRPL Monitor Dashboard</h1>
+                        <div class="flex items-center space-x-2">
+                            <template x-if="testMode">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                    Test Mode
+                                </span>
+                            </template>
+                            <template x-if="debugMode">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    Debug
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button 
+                            @click="toggleMonitor()"
+                            :class="status === 'running' ? 'bg-red-600' : 'bg-green-600'"
+                            class="px-4 py-2 text-white rounded-md">
+                            <span x-text="status === 'running' ? 'Stop' : 'Start'"></span> Monitor
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <!-- Status Card -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <dt class="text-sm font-medium text-gray-500 truncate">Status</dt>
+                        <dd class="mt-1 text-3xl font-semibold" x-text="status"></dd>
+                    </div>
+                </div>
+
+                <!-- Trust Lines Today -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <dt class="text-sm font-medium text-gray-500 truncate">Trust Lines Today</dt>
+                        <dd class="mt-1 text-3xl font-semibold" x-text="trustLinesToday"></dd>
+                    </div>
+                </div>
+
+                <!-- Transactions Today -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <dt class="text-sm font-medium text-gray-500 truncate">Transactions Today</dt>
+                        <dd class="mt-1 text-3xl font-semibold" x-text="transactionsToday"></dd>
+                    </div>
+                </div>
+
+                <!-- Uptime -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <dt class="text-sm font-medium text-gray-500 truncate">Uptime</dt>
+                        <dd class="mt-1 text-3xl font-semibold" x-text="uptime"></dd>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="mt-8">
+                <div class="bg-white shadow rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Activity</h3>
+                        <div class="mt-4">
+                            <template x-if="lastTransaction">
+                                <div class="text-sm text-gray-600">
+                                    <p class="font-medium">Last Transaction:</p>
+                                    <p x-text="lastTransaction"></p>
+                                </div>
+                            </template>
+                            <template x-if="lastError">
+                                <div class="mt-4 p-4 bg-red-50 text-red-700 rounded-md">
+                                    <p class="font-medium">Last Error:</p>
+                                    <p x-text="lastError"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                ws: null,
+                status: '{{ stats.status }}',
+                trustLinesToday: {{ stats.trust_lines_today }},
+                transactionsToday: {{ stats.transactions_today }},
+                lastTransaction: '{{ stats.last_transaction }}',
+                lastError: '{{ stats.last_error }}',
+                startTime: '{{ stats.start_time }}',
+                testMode: {{ stats.test_mode | lower }},
+                debugMode: {{ stats.debug_mode | lower }},
+                
+                init() {
+                    this.connectWebSocket();
+                },
+
+                connectWebSocket() {
+                    this.ws = new WebSocket('{{ ws_url }}');
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.updateStats(data);
+                    };
+                    this.ws.onclose = () => {
+                        // Reconnect after 1 second
+                        setTimeout(() => this.connectWebSocket(), 1000);
+                    };
+                },
+
+                updateStats(data) {
+                    this.status = data.status;
+                    this.trustLinesToday = data.trust_lines_today;
+                    this.transactionsToday = data.transactions_today;
+                    this.lastTransaction = data.last_transaction;
+                    this.lastError = data.last_error;
+                    this.startTime = data.start_time;
+                },
+
+                toggleMonitor() {
+                    const message = {
+                        type: this.status === 'running' ? 'stop' : 'start'
+                    };
+                    this.ws.send(JSON.stringify(message));
+                },
+
+                get uptime() {
+                    if (!this.startTime || this.status !== 'running') return '-';
+                    const start = new Date(this.startTime);
+                    const now = new Date();
+                    const diff = Math.floor((now - start) / 1000);
+                    
+                    const hours = Math.floor(diff / 3600);
+                    const minutes = Math.floor((diff % 3600) / 60);
+                    const seconds = diff % 60;
+                    
+                    return `${hours}h ${minutes}m ${seconds}s`;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

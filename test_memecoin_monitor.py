@@ -3,7 +3,7 @@ from unittest.mock import Mock, AsyncMock, patch
 import json
 import logging
 
-from main import XRPLTokenMonitor
+from memecoin_monitor import XRPLTokenMonitor
 from config import Config
 
 pytestmark = pytest.mark.asyncio
@@ -33,13 +33,13 @@ def mock_client():
 
 @pytest.fixture
 def monitor(mock_config):
-    with patch('main.Wallet') as MockWallet:
+    with patch('memecoin_monitor.Wallet') as MockWallet:
         MockWallet.from_seed.return_value = Mock(classic_address="rTestAddress123")
         return XRPLTokenMonitor(mock_config)
 
 @pytest.fixture
 def monitor_test_mode(mock_config):
-    with patch('main.Wallet') as MockWallet:
+    with patch('memecoin_monitor.Wallet') as MockWallet:
         MockWallet.from_seed.return_value = Mock(classic_address="rTestAddress123")
         return XRPLTokenMonitor(mock_config, test_mode=True)
 
@@ -63,7 +63,7 @@ async def test_handle_trust_set_test_mode(monitor_test_mode, mock_client, caplog
 
 async def test_debug_logging(mock_config, caplog):
     """Test debug mode logging setup"""
-    with patch('main.Wallet') as MockWallet:
+    with patch('memecoin_monitor.Wallet') as MockWallet:
         MockWallet.from_seed.return_value = Mock(classic_address="rTestAddress123")
         monitor = XRPLTokenMonitor(mock_config, debug=True)
         
@@ -119,7 +119,7 @@ async def test_successful_trust_set(monitor, mock_client):
     submit_responses = [mock_trust_response, mock_payment_response]
     mock_submit = AsyncMock(side_effect=submit_responses)
 
-    with patch('main.submit_and_wait', mock_submit):
+    with patch('memecoin_monitor.submit_and_wait', mock_submit):
         await monitor.handle_trust_set(mock_client, test_tx)
         
         # Verify both trust line and purchase were attempted
