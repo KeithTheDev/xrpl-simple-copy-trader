@@ -1,3 +1,5 @@
+# config.py
+
 import os
 import yaml
 from typing import Any, Dict
@@ -31,19 +33,14 @@ class Config:
         'trading': {
             'initial_purchase_amount': "1",
             'min_trust_line_amount': "1000",
-            'max_trust_line_amount': "10000"
+            'max_trust_line_amount': "10000",
+            'send_max_xrp': "85",
+            'slippage_percent': "5"
         },
         'logging': {
             'level': "INFO",
             'format': "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             'filename': "xrpl_trader.log"
-        },
-        'trading': {
-            'initial_purchase_amount': "1",
-            'min_trust_line_amount': "1000",
-            'max_trust_line_amount': "10000",
-            'send_max_xrp': "85",
-            'slippage_percent': "5"
         }
     }
 
@@ -154,16 +151,16 @@ class Config:
                 
         return merged
     
-    def get(self, *keys: str, default: Any = None) -> Any:
+    def get(self, *keys: str, fallback: Any = None, default: Any = None) -> Any:
         """Get a configuration value using dot notation"""
         value = self.config
         for key in keys:
             try:
                 value = value[key]
                 if value is None:
-                    return default
+                    return fallback if fallback is not None else default
             except (KeyError, TypeError):
-                return default
+                return fallback if fallback is not None else default
         return value
 
     def validate(self) -> bool:

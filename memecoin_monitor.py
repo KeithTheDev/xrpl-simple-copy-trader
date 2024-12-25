@@ -1,3 +1,5 @@
+# memecoin_monitor.py
+
 import asyncio
 import json
 import logging
@@ -9,7 +11,7 @@ from xrpl.asyncio.clients import AsyncWebsocketClient
 from xrpl.asyncio.transaction import submit_and_wait
 from xrpl.models.amounts import IssuedCurrencyAmount
 from xrpl.models.requests import Subscribe, Ping
-from xrpl.models.transactions import Payment, TrustSet
+from xrpl.models.transactions import TrustSet
 from xrpl.wallet import Wallet
 
 from config import Config
@@ -37,10 +39,11 @@ class XRPLTokenMonitor:
         
         if not self.logger.handlers:
             # File handler from config
-            log_config = config.get('logging', default={})
-            if log_config.get('filename'):
-                file_handler = logging.FileHandler(log_config['filename'])
-                file_handler.setFormatter(logging.Formatter(log_config.get('format', '%(message)s')))
+            log_config = config.get('logging', 'filename', fallback=None)
+            log_format = config.get('logging', 'format', fallback='%(message)s')
+            if log_config:
+                file_handler = logging.FileHandler(log_config)
+                file_handler.setFormatter(logging.Formatter(log_format))
                 self.logger.addHandler(file_handler)
             
             # Console handler
@@ -52,6 +55,24 @@ class XRPLTokenMonitor:
             self.logger.info("Debug mode enabled")
         if test_mode:
             self.logger.info("Test mode enabled - transactions will be monitored but no actual purchases will be made")
+
+        # Callback-funktioner som kan sättas från web_server.py
+        self.on_trust_line_created = None
+        self.on_monitor_started = None
+
+    async def _log_transaction(self, tx: Dict[str, Any], validated: bool) -> None:
+        """Helper method for transaction logging"""
+        tx_type = tx.get("TransactionType", "Unknown")
+        tx_hash = tx.get('hash', 'Unknown hash')
+        
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(f"Got {tx_type} (validated={validated}) from target wallet")
+
+        if validated:
+            self.logger.info(f"Transaction {tx_hash} is now validated.")
+            
+        if validated and tx_type == "TrustSet":
+            self.logger.info("Processing TrustSet transaction...")
 
     async def set_trust_line(self, client: AsyncWebsocketClient, currency: str, issuer: str, limit: str):
         """Set a trust line for the token"""
@@ -97,83 +118,25 @@ class XRPLTokenMonitor:
             self.logger.error(f"Error setting trust line: {str(e)}")
             raise
 
-    async def make_small_purchase(self, client: AsyncWebsocketClient, currency: str, issuer: str):
-        """Make a small purchase of the token using path-finding"""
-        amount = self.config.get('trading', 'initial_purchase_amount')
-        send_max_xrp = self.config.get('trading', 'send_max_xrp')
-        slippage = float(self.config.get('trading', 'slippage_percent')) / 100.0
-        
-        if self.test_mode:
-            self.logger.info(f"TEST MODE: Would make purchase of {currency} amount: {amount}")
-            return
-
-        self.logger.info(f"Attempting purchase of {currency}...")
-        
-        # Calculate min delivery amount with configured slippage
-        target_amount = float(amount)
-        min_amount = target_amount * (1 - slippage)
-        
-        # Convert send_max to drops (multiply by 1M)
-        send_max_drops = str(int(float(send_max_xrp) * 1_000_000))
-        
-        # tfPartialPayment = 0x00020000
-        payment = Payment(
-            account=self.follower_wallet.classic_address,
-            destination=self.follower_wallet.classic_address,  # Send to self
-            fee="12",  # Standard fee in drops
-            send_max=send_max_drops,
-            flags=0x00020000,  # tfPartialPayment flag
-            amount=IssuedCurrencyAmount(
-                currency=currency,
-                issuer=issuer,
-                value=str(target_amount)
-            ),
-            deliver_min=IssuedCurrencyAmount(
-                currency=currency,
-                issuer=issuer,
-                value=str(min_amount)
-            )
-        )
-        
-        try:
-            response = await submit_and_wait(
-                transaction=payment,
-                client=client,
-                wallet=self.follower_wallet
-            )
-            result = response.result.get('meta', {}).get('TransactionResult')
-            self.logger.info(f"Purchase attempt result: {result}")
-            
-            if result != "tesSUCCESS":
-                raise Exception(f"Purchase failed: {result}")
-            
-            # Log delivered amount if available
-            delivered = response.result.get('meta', {}).get('delivered_amount')
-            if delivered and isinstance(delivered, dict):
-                self.logger.info(f"Actually delivered: {delivered.get('value')} {delivered.get('currency')}")
-                self.logger.info(f"Used {float(send_max_xrp)} XRP max")
-                
-                # Add purchase to database
-                self.db.add_purchase(
-                    currency,
-                    issuer,
-                    delivered.get('value'),
-                    send_max_xrp,
-                    response.result.get('hash', 'Unknown'),
-                    self.test_mode
-                )
-                
-        except Exception as e:
-            self.logger.error(f"Error making purchase: {str(e)}")
-            raise
-
     async def handle_trust_set(self, client: AsyncWebsocketClient, tx: Dict[str, Any]):
-        """Handle TrustSet transactions from target wallet"""
-        if tx.get("Account") != self.target_wallet:
+        """Handle TrustSet transactions related to target wallet"""
+
+        self.logger.debug("Entering handle_trust_set method")
+
+        account = tx.get("Account")
+        destination = tx.get("Destination")
+        self.logger.debug(f"Transaction Account: {account}")
+        self.logger.debug(f"Transaction Destination: {destination}")
+        self.logger.debug(f"Transaction Type: {tx.get('TransactionType')}")
+
+        # Behandla endast TrustSet-transaktioner där target_wallet är Account eller Destination
+        if account != self.target_wallet and destination != self.target_wallet:
+            self.logger.debug(f"Ignoring TrustSet from {account} to {destination}, not involving target_wallet.")
             return
 
         limit_amount = tx.get("LimitAmount", {})
         if not isinstance(limit_amount, dict):
+            self.logger.warning(f"LimitAmount is not a dict; got {type(limit_amount)} instead. Aborting handle_trust_set.")
             return
 
         currency = limit_amount.get("currency")
@@ -181,6 +144,7 @@ class XRPLTokenMonitor:
         limit = limit_amount.get("value")
 
         if not all([currency, issuer, limit]):
+            self.logger.warning("Incomplete LimitAmount data. Aborting handle_trust_set.")
             return
 
         self.logger.info(f"\n🔗 Target wallet set new trust line:")
@@ -188,13 +152,26 @@ class XRPLTokenMonitor:
         self.logger.info(f"   Issuer: {issuer}")
         self.logger.info(f"   Limit: {limit}\n")
 
-        # Add trustline to database
-        self.db.add_trustline(currency, issuer, limit, tx.get('hash', 'Unknown'), self.test_mode)
+        # Försök att lägga till trustline i databasen och logga resultatet
+        try:
+            self.db.add_trustline(currency, issuer, limit, tx.get('hash', 'Unknown'), self.test_mode)
+            self.logger.info("Trust line successfully added to the database.")
+        except Exception as e:
+            self.logger.error(f"Failed to add trust line to the database: {str(e)}")
+            return
+
+        # Anropa callback för TrustSet
+        if self.on_trust_line_created:
+            self.logger.debug("Calling on_trust_line_created callback")
+            try:
+                await self.on_trust_line_created(tx)
+                self.logger.debug("Callback executed successfully")
+            except Exception as e:
+                self.logger.error(f"Error in on_trust_line_created callback: {str(e)}")
 
         # Set our own trust line and make initial purchase
         try:
             await self.set_trust_line(client, currency, issuer, limit)
-            await self.make_small_purchase(client, currency, issuer)
         except Exception as e:
             self.logger.error(f"Error handling trust set: {str(e)}")
 
@@ -247,6 +224,15 @@ class XRPLTokenMonitor:
                     await client.send(subscribe_request)
                     self.logger.info(f"Subscribed to target wallet: {self.target_wallet}")
                     
+                    # Skicka initialt meddelande till frontend
+                    if self.on_monitor_started:
+                        self.logger.debug("Calling on_monitor_started callback")
+                        try:
+                            await self.on_monitor_started()
+                            self.logger.debug("Monitor started callback executed successfully")
+                        except Exception as e:
+                            self.logger.error(f"Error in on_monitor_started callback: {str(e)}")
+                    
                     # Start heartbeat
                     self.last_pong = asyncio.get_event_loop().time()
                     self.ping_task = asyncio.create_task(self._heartbeat(client))
@@ -280,17 +266,11 @@ class XRPLTokenMonitor:
                         # Process validated transactions
                         if data.get("type") == "transaction":
                             tx = data.get("tx_json", {})
-                            tx_type = tx.get("TransactionType")
                             validated = data.get("validated", False)
-                            tx_hash = tx.get('hash', 'Unknown hash')
                             
-                            if self.logger.isEnabledFor(logging.DEBUG):
-                                self.logger.debug(f"Got {tx_type} (validated={validated}) from target wallet")
-
-                            if validated:
-                                self.logger.debug(f"Transaction {tx_hash} is now validated.")
-
-                            if validated and tx_type == "TrustSet":
+                            await self._log_transaction(tx, validated)
+                            
+                            if validated and tx.get("TransactionType") == "TrustSet":
                                 await self.handle_trust_set(client, tx)
 
             except asyncio.CancelledError:
