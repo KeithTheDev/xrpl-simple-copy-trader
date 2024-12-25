@@ -186,6 +186,10 @@ class XRPLTokenMonitor:
 
     async def _heartbeat(self, client: AsyncWebsocketClient):
         """Send periodic pings and monitor for pong responses"""
+
+        self.logger.debug("Connection montoring code disabled for now.")
+        return
+
         try:
             while True:
                 await asyncio.sleep(self.ping_interval)

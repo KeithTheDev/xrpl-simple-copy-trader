@@ -13,7 +13,8 @@ class Config:
     ALLOWED_ENDPOINTS = [
         '.rippletest.net',
         'xrpl.org',
-        'ripple.com'
+        'ripple.com',
+        "xrplcluster.com" 
     ]
 
     # Default configuration values
