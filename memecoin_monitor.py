@@ -56,7 +56,7 @@ class XRPLTokenMonitor:
         if test_mode:
             self.logger.info("Test mode enabled - transactions will be monitored but no actual purchases will be made")
 
-        # Callback-funktioner som kan sättas från web_server.py
+        # Callback functions that can be set from web_server.py
         self.on_trust_line_created = None
         self.on_monitor_started = None
 
@@ -129,7 +129,7 @@ class XRPLTokenMonitor:
         self.logger.debug(f"Transaction Destination: {destination}")
         self.logger.debug(f"Transaction Type: {tx.get('TransactionType')}")
 
-        # Behandla endast TrustSet-transaktioner där target_wallet är Account eller Destination
+        # Only handle TrustSet transactions where target_wallet is Account or Destination
         if account != self.target_wallet and destination != self.target_wallet:
             self.logger.debug(f"Ignoring TrustSet from {account} to {destination}, not involving target_wallet.")
             return
@@ -152,7 +152,7 @@ class XRPLTokenMonitor:
         self.logger.info(f"   Issuer: {issuer}")
         self.logger.info(f"   Limit: {limit}\n")
 
-        # Försök att lägga till trustline i databasen och logga resultatet
+        # Attempt to add trustline to the database and log the result
         try:
             self.db.add_trustline(currency, issuer, limit, tx.get('hash', 'Unknown'), self.test_mode)
             self.logger.info("Trust line successfully added to the database.")
@@ -160,7 +160,7 @@ class XRPLTokenMonitor:
             self.logger.error(f"Failed to add trust line to the database: {str(e)}")
             return
 
-        # Anropa callback för TrustSet
+        # Call callback for TrustSet
         if self.on_trust_line_created:
             self.logger.debug("Calling on_trust_line_created callback")
             try:
@@ -224,7 +224,7 @@ class XRPLTokenMonitor:
                     await client.send(subscribe_request)
                     self.logger.info(f"Subscribed to target wallet: {self.target_wallet}")
                     
-                    # Skicka initialt meddelande till frontend
+                    # Send initial message to frontend
                     if self.on_monitor_started:
                         self.logger.debug("Calling on_monitor_started callback")
                         try:

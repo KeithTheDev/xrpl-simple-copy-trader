@@ -9,12 +9,12 @@
     <!-- Alpine.js -->
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
-        /* Eventuella anpassade stilar kan läggas till här */
+        /* Add any custom styles here */
     </style>
 </head>
 <body class="bg-gray-100">
     <div x-data="dashboard()" class="min-h-screen relative">
-        <!-- Notifieringskomponent -->
+        <!-- Notification Component -->
         <div x-data="{ show: false, message: '', type: 'info' }" 
              x-show="show" 
              x-transition 
@@ -61,7 +61,7 @@
 
         <!-- Main Content -->
         <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-            <!-- Statistiksektion -->
+            <!-- Statistics Section -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div class="bg-white shadow rounded-lg p-6">
                     <h3 class="text-lg font-medium text-gray-900">Status</h3>
@@ -93,9 +93,9 @@
                 </div>
             </div>
 
-            <!-- Senaste Aktivitet -->
+            <!-- Recent Activity -->
             <div class="mt-8 bg-white shadow rounded-lg p-6">
-                <h3 class="text-lg font-medium text-gray-900">Senaste Aktivitet</h3>
+                <h3 class="text-lg font-medium text-gray-900">Recent Activity</h3>
                 <div class="mt-4">
                     <template x-if="lastTransaction">
                         <div class="flex items-start">
@@ -106,7 +106,7 @@
                                 </svg>
                             </div>
                             <div class="ml-3">
-                                <p class="text-sm text-gray-700">Senaste Transaktion:</p>
+                                <p class="text-sm text-gray-700">Last Transaction:</p>
                                 <p class="mt-1 text-sm font-medium text-gray-900" x-text="lastTransaction"></p>
                             </div>
                         </div>
@@ -120,13 +120,13 @@
                                 </svg>
                             </div>
                             <div class="ml-3">
-                                <p class="text-sm text-red-700">Fel:</p>
+                                <p class="text-sm text-red-700">Error:</p>
                                 <p class="mt-1 text-sm text-red-700" x-text="lastError"></p>
                             </div>
                         </div>
                     </template>
                     <template x-if="!lastTransaction && !lastError">
-                        <div class="text-sm text-gray-500 italic">Ingen senaste aktivitet</div>
+                        <div class="text-sm text-gray-500 italic">No recent activity</div>
                     </template>
                 </div>
             </div>
@@ -139,7 +139,7 @@
                             <circle cx="50" cy="50" r="45" fill="#F59E0B" stroke="#D97706" stroke-width="5"/>
                             <text x="50%" y="55%" text-anchor="middle" fill="#FFFFFF" font-size="40px" font-family="Arial" dy=".3em">$</text>
                         </svg>
-                        <p class="mt-4 text-lg font-semibold text-gray-800">Transaktion Utförd</p>
+                        <p class="mt-4 text-lg font-semibold text-gray-800">Transaction Completed</p>
                     </div>
                 </div>
             </template>
@@ -153,12 +153,6 @@
                     </div>
                 </div>
             </template>
-
-            <!-- Temporära Testknappar (valfritt) -->
-            <div class="mt-4">
-                <button @click="triggerCoinAnimation()" class="px-4 py-2 bg-blue-600 text-white rounded mr-2">Test Coin Animation</button>
-                <button @click="triggerXrpAnimation()" class="px-4 py-2 bg-blue-600 text-white rounded">Test XRP Animation</button>
-            </div>
         </main>
     </div>
 
@@ -179,7 +173,7 @@
                 uptimeInterval: null,
                 currentUptime: '-',
 
-                // Kontrollera visning av XRP och Coin animationer
+                // Control visibility of XRP and Coin animations
                 showXrpAnimation: false,
                 showCoinAnimation: false,
 
@@ -196,7 +190,7 @@
                 },
 
                 showNotification(message, type) {
-                    // Dynamisk notifieringskomponent
+                    // Dynamic notification component
                     const notif = document.querySelector('[x-data="{ show: false, message: \'\', type: \'info\' }"]');
                     if (notif) {
                         notif.__x.$data.show = true;
@@ -207,7 +201,7 @@
                             notif.__x.$data.show = false;
                         }, 3000);
                     } else {
-                        console.error("Notifieringskomponenten hittades inte.");
+                        console.error("Notification component not found.");
                     }
                 },
 
@@ -241,45 +235,45 @@
                     this.ws = new WebSocket('{{ ws_url }}');
                     
                     this.ws.onopen = () => {
-                        console.log("WebSocket-anslutning etablerad.");
+                        console.log("WebSocket connection established.");
                     };
 
                     this.ws.onmessage = (event) => {
                         const data = JSON.parse(event.data);
-                        console.log('Mottagna data:', data); // Felsökningslogg
+                        console.log('Received data:', data); // Debug log
                         this.updateStats(data);
                         this.reconnectAttempts = 0;
                     };
 
                     this.ws.onclose = () => {
-                        console.warn("WebSocket-anslutning stängd.");
+                        console.warn("WebSocket connection closed.");
                         if (this.reconnectAttempts < this.maxReconnectAttempts) {
                             this.reconnectAttempts++;
                             const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-                            console.log(`Försöker återansluta om ${delay}ms...`);
+                            console.log(`Attempting to reconnect in ${delay}ms...`);
                             setTimeout(() => this.connectWebSocket(), delay);
                         } else {
-                            this.lastError = 'WebSocket-anslutning misslyckades efter maximalt antal försök';
+                            this.lastError = 'WebSocket connection failed after maximum attempts';
                             this.status = 'error';
-                            this.notify('WebSocket-anslutning misslyckades efter maximalt antal försök', 'error');
+                            this.notify('WebSocket connection failed after maximum attempts', 'error');
                         }
                     };
 
                     this.ws.onerror = (error) => {
-                        console.error('WebSocket-fel:', error);
+                        console.error('WebSocket error:', error);
                     };
                 },
 
                 updateStats(data) {
-                    // Kontrollera om en ny TrustSet-transaktion har upptäckts
+                    // Check if a new TrustSet transaction has been detected
                     const wasTrustSet = this.lastTransaction && this.lastTransaction.startsWith('TrustSet');
                     const isTrustSet = data.last_transaction && data.last_transaction.startsWith('TrustSet');
 
-                    // Kontrollera om en ny transaktion har upptäckts
+                    // Check if a new transaction has been detected
                     const wasTransaction = this.lastTransaction && this.lastTransaction !== 'Unknown';
                     const isNewTransaction = data.last_transaction && data.last_transaction !== 'Unknown' && data.last_transaction !== this.lastTransaction;
 
-                    // Uppdatera stats
+                    // Update stats
                     this.status = data.status;
                     this.trustLinesToday = data.trust_lines_today;
                     this.transactionsToday = data.transactions_today;
@@ -290,19 +284,19 @@
                     console.log(`wasTrustSet: ${wasTrustSet}, isTrustSet: ${isTrustSet}`);
                     console.log(`wasTransaction: ${wasTransaction}, isNewTransaction: ${isNewTransaction}`);
 
-                    // Trigger XRP animation om en ny TrustSet-transaktion upptäcks
+                    // Trigger XRP animation if a new TrustSet transaction is detected
                     if (!wasTrustSet && isTrustSet && data.last_transaction !== 'Unknown') {
                         console.log('Triggering XRP animation');
                         this.triggerXrpAnimation();
                     }
 
-                    // Trigger Coin animation om en ny transaktion upptäcks
+                    // Trigger Coin animation if a new transaction is detected
                     if (!wasTransaction && isNewTransaction) {
                         console.log('Triggering Coin animation');
                         this.triggerCoinAnimation();
                     }
 
-                    // Uppdatera Uptime
+                    // Update Uptime
                     if (!this.uptimeInterval) {
                         this.startUptimeTimer();
                     }
@@ -313,7 +307,7 @@
                     this.showXrpAnimation = true;
                     setTimeout(() => {
                         this.showXrpAnimation = false;
-                    }, 2000); // Animationens varaktighet i millisekunder
+                    }, 2000); // Animation duration in milliseconds
                 },
 
                 triggerCoinAnimation() {
@@ -321,7 +315,7 @@
                     this.showCoinAnimation = true;
                     setTimeout(() => {
                         this.showCoinAnimation = false;
-                    }, 2000); // Animationens varaktighet i millisekunder
+                    }, 2000); // Animation duration in milliseconds
                 },
 
                 toggleMonitor() {
@@ -331,12 +325,12 @@
                         };
                         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                             this.ws.send(JSON.stringify(message));
-                            this.notify(`Monitor ${this.status === 'running' ? 'stoppad' : 'startad'}`, 'info');
+                            this.notify(`Monitor ${this.status === 'running' ? 'stopped' : 'started'}`, 'info');
                             if (message.type === 'start') {
-                                this.status = 'starting'; // Temporär status för att visa spinner
+                                this.status = 'starting'; // Temporary status to show spinner
                             }
                         } else {
-                            this.notify('WebSocket är inte ansluten.', 'error');
+                            this.notify('WebSocket is not connected.', 'error');
                         }
                     }
                 },

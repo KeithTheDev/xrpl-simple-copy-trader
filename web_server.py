@@ -1,15 +1,13 @@
 # web_server.py
 
 import asyncio
-import websockets
 import json
 import logging
-
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from typing import Dict, List, Any
+from typing import List, Dict, Any
 from datetime import datetime
 import os
 
@@ -44,7 +42,7 @@ monitor_stats = {
     "test_mode": False
 }
 
-# Callback för TrustSet-transaktioner
+# Callback for TrustSet transactions
 async def on_trust_line_created(tx_data: Dict[str, Any]):
     global monitor_stats
     monitor_stats["trust_lines_today"] += 1
@@ -53,7 +51,7 @@ async def on_trust_line_created(tx_data: Dict[str, Any]):
     logging.info(f"Updated monitor_stats: {monitor_stats}")
     await broadcast_stats()
 
-# Callback när monitoreringen startar
+# Callback when monitoring starts
 async def on_monitor_started():
     global monitor_stats
     monitor_stats["status"] = "running"
@@ -69,7 +67,7 @@ async def startup_event():
     if not config.validate():
         raise Exception("Invalid configuration")
 
-    # Initialize monitor med flags från miljön
+    # Initialize monitor with flags from environment
     debug_mode = app.debug_mode
     test_mode = app.test_mode
 
@@ -80,11 +78,11 @@ async def startup_event():
         test_mode=test_mode
     )
 
-    # Sätt global callback
+    # Set global callbacks
     monitor.on_trust_line_created = on_trust_line_created
     monitor.on_monitor_started = on_monitor_started
 
-    # Uppdatera monitor_stats med nuvarande inställningar
+    # Update monitor_stats with current settings
     monitor_stats.update({
         "debug_mode": debug_mode,
         "test_mode": test_mode
@@ -117,7 +115,7 @@ async def websocket_endpoint(websocket: WebSocket):
     active_connections.append(websocket)
     logging.info(f"New client connected: {websocket.client.host}:{websocket.client.port}")
     try:
-        # Skicka nuvarande stats till den nya klienten
+        # Send current stats to the new client
         await websocket.send_json(monitor_stats)
         while True:
             data = await websocket.receive_text()
@@ -160,7 +158,7 @@ async def start_monitor():
             test_mode=app.test_mode
         )
         
-        # Sätt global callback igen om du init:ar monitor på nytt
+        # Set global callbacks again if re-initializing monitor
         monitor.on_trust_line_created = on_trust_line_created
         monitor.on_monitor_started = on_monitor_started
 
