@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define the WebSocket URL and the account to monitor
-WEBSOCKET_URL = "wss://s1.ripple.com/"
+WEBSOCKET_URL = "wss://xrplcluster.com"
 ACCOUNT = "r4MbVx6ZksLuwJQVT7x1majPpfVQFDFpK7"
 
 async def listen_to_account():

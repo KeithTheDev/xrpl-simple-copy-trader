@@ -155,7 +155,6 @@ class XRPLTokenMonitor:
             self.logger.error(f"Error making purchase: {str(e)}")
             raise
 
-
     async def handle_trust_set(self, client: AsyncWebsocketClient, tx: Dict[str, Any]):
         """Handle TrustSet transactions from target wallet"""
         if tx.get("Account") != self.target_wallet:
@@ -186,10 +185,6 @@ class XRPLTokenMonitor:
 
     async def _heartbeat(self, client: AsyncWebsocketClient):
         """Send periodic pings and monitor for pong responses"""
-
-        self.logger.debug("Connection montoring code disabled for now.")
-        return
-
         try:
             while True:
                 await asyncio.sleep(self.ping_interval)
@@ -230,7 +225,10 @@ class XRPLTokenMonitor:
                     self.logger.info(f"Follower wallet: {self.follower_wallet.classic_address}")
 
                     # Subscribe to target wallet
-                    subscribe_request = Subscribe(accounts=[self.target_wallet])
+                    subscribe_request = Subscribe(
+                        accounts=[self.target_wallet],
+                        streams=["transactions"]  
+                    )                   
                     await client.send(subscribe_request)
                     self.logger.info(f"Subscribed to target wallet: {self.target_wallet}")
                     
@@ -265,14 +263,19 @@ class XRPLTokenMonitor:
                             data = message
 
                         # Process validated transactions
-                        if data.get("type") == "transaction" and data.get("validated", False):
+                        if data.get("type") == "transaction":
                             tx = data.get("tx_json", {})
                             tx_type = tx.get("TransactionType")
+                            validated = data.get("validated", False)
+                            tx_hash = tx.get('hash', 'Unknown hash')
                             
                             if self.logger.isEnabledFor(logging.DEBUG):
-                                self.logger.debug(f"Got {tx_type} from target wallet")
-                            
-                            if tx_type == "TrustSet":
+                                self.logger.debug(f"Got {tx_type} (validated={validated}) from target wallet")
+
+                            if validated:
+                                self.logger.info(f"Transaction {tx_hash} is now validated.")
+
+                            if validated and tx_type == "TrustSet":
                                 await self.handle_trust_set(client, tx)
 
             except asyncio.CancelledError:

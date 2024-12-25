@@ -6,14 +6,18 @@ import asyncio
 import json
 from typing import Dict, List
 from datetime import datetime
+import os
 
 from memecoin_monitor import XRPLTokenMonitor
 from config import Config
 
 app = FastAPI()
 
+# Initialize app state from environment
+app.debug_mode = os.environ.get('APP_DEBUG', 'False').lower() == 'true'
+app.test_mode = os.environ.get('APP_TEST', 'False').lower() == 'true'
+
 # Ensure directories exist
-import os
 os.makedirs("templates", exist_ok=True)
 os.makedirs("static", exist_ok=True)
 
@@ -30,28 +34,31 @@ monitor_stats = {
     "transactions_today": 0,
     "status": "stopped",
     "last_error": None,
-    "start_time": None
+    "start_time": None,
+    "debug_mode": False,
+    "test_mode": False
 }
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the XRPL monitor on startup"""
     global monitor, monitor_stats
     config = Config()
     if not config.validate():
         raise Exception("Invalid configuration")
     
-    monitor = XRPLTokenMonitor(
-        config, 
-        debug=getattr(app, 'debug_mode', False),
-        test_mode=getattr(app, 'test_mode', False)
-    )
-    
-    # Update monitor stats with mode information
+    # Initialize monitor with flags from environment
+    debug_mode = app.debug_mode
+    test_mode = app.test_mode
+
+    # Initialize monitor with flags
+    monitor = XRPLTokenMonitor(config, debug=debug_mode, test_mode=test_mode)
+
+    # Update monitor stats with current settings
     monitor_stats.update({
-        "debug_mode": getattr(app, 'debug_mode', False),
-        "test_mode": getattr(app, 'test_mode', False)
+        "debug_mode": debug_mode,
+        "test_mode": test_mode
     })
+    print(f"Startup complete - debug={debug_mode}, test={test_mode}")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -72,11 +79,11 @@ async def websocket_endpoint(websocket: WebSocket):
     active_connections.append(websocket)
     try:
         while True:
-            # Keep connection alive and handle any client messages
             data = await websocket.receive_text()
             try:
                 message = json.loads(data)
                 if message.get("type") == "start":
+                    print(f"Starting monitor with debug={app.debug_mode}, test={app.test_mode}")
                     await start_monitor()
                 elif message.get("type") == "stop":
                     await stop_monitor()
@@ -100,12 +107,25 @@ async def broadcast_stats():
 
 async def start_monitor():
     """Start the XRPL monitor"""
-    global monitor_stats
+    global monitor, monitor_stats
     if monitor_stats["status"] != "running":
+        # Reinitialize monitor with correct flags
+        config = Config()
+        if not config.validate():
+            raise Exception("Invalid configuration")
+            
+        monitor = XRPLTokenMonitor(
+            config, 
+            debug=app.debug_mode,
+            test_mode=app.test_mode
+        )
+        
         monitor_stats.update({
             "status": "running",
             "start_time": datetime.now().isoformat(),
-            "last_error": None
+            "last_error": None,
+            "debug_mode": app.debug_mode,
+            "test_mode": app.test_mode
         })
         await broadcast_stats()
         asyncio.create_task(run_monitor())
@@ -135,15 +155,22 @@ async def get_stats():
 if __name__ == "__main__":
     import argparse
     import uvicorn
+    from typing import Dict
     
     parser = argparse.ArgumentParser(description='XRPL Monitor Web Dashboard')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
     parser.add_argument('-t', '--test', action='store_true', help='Test mode - no actual purchases will be made')
     parser.add_argument('-p', '--port', type=int, default=8000, help='Port to run webserver on')
     args = parser.parse_args()
+
+    # Store flags in environment variables
+    os.environ['APP_DEBUG'] = str(args.debug)
+    os.environ['APP_TEST'] = str(args.test)
     
-    # Store arguments in app state for monitor initialization
+    # Update app state from environment
     app.debug_mode = args.debug
     app.test_mode = args.test
+
+    print(f"Starting web_server.py with debug={app.debug_mode}, test_mode={app.test_mode}, port={args.port}")
     
     uvicorn.run("web_server:app", host="0.0.0.0", port=args.port, reload=True)

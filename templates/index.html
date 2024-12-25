@@ -6,9 +6,47 @@
     <title>XRPL Monitor Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        @keyframes pill-rotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .pill {
+            width: 20px;
+            height: 40px;
+            border-radius: 20px;
+            position: relative;
+            animation: pill-rotate 2s linear infinite;
+        }
+
+        .pill::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 50%;
+            background: #ef4444;
+            border-radius: 10px 10px 0 0;
+        }
+
+        .pill::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #fbbf24;
+            border-radius: 0 0 10px 10px;
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
-    <div x-data="dashboard()" class="min-h-screen">
+    <div x-data="dashboard()" 
+         x-init="startUptimeTimer()" 
+         class="min-h-screen">
         <!-- Header -->
         <header class="bg-white shadow">
             <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
@@ -31,8 +69,14 @@
                     <div class="flex space-x-4">
                         <button 
                             @click="toggleMonitor()"
-                            :class="status === 'running' ? 'bg-red-600' : 'bg-green-600'"
-                            class="px-4 py-2 text-white rounded-md">
+                            :class="{
+                                'bg-red-600 hover:bg-red-700': status === 'running',
+                                'bg-green-600 hover:bg-green-700': status !== 'running',
+                                'opacity-50 cursor-not-allowed': status === 'error'
+                            }"
+                            :disabled="status === 'error'"
+                            class="px-4 py-2 text-white rounded-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2"
+                            :class="{'focus:ring-red-500': status === 'running', 'focus:ring-green-500': status !== 'running'}">
                             <span x-text="status === 'running' ? 'Stop' : 'Start'"></span> Monitor
                         </button>
                     </div>
@@ -45,34 +89,44 @@
             <!-- Stats Grid -->
             <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 <!-- Status Card -->
-                <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="bg-white overflow-hidden shadow rounded-lg transition duration-150 ease-in-out"
+                    :class="{
+                        'border-l-4 border-green-500': status === 'running',
+                        'border-l-4 border-red-500': status === 'error',
+                        'border-l-4 border-gray-500': status === 'stopped'
+                    }">
                     <div class="px-4 py-5 sm:p-6">
                         <dt class="text-sm font-medium text-gray-500 truncate">Status</dt>
-                        <dd class="mt-1 text-3xl font-semibold" x-text="status"></dd>
+                        <dd class="mt-1 text-3xl font-semibold flex items-center space-x-2">
+                            <span x-text="status" class="capitalize"></span>
+                            <template x-if="status === 'running'">
+                                <div class="pill ml-2"></div>
+                            </template>
+                        </dd>
                     </div>
                 </div>
 
                 <!-- Trust Lines Today -->
-                <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition duration-150 ease-in-out">
                     <div class="px-4 py-5 sm:p-6">
                         <dt class="text-sm font-medium text-gray-500 truncate">Trust Lines Today</dt>
-                        <dd class="mt-1 text-3xl font-semibold" x-text="trustLinesToday"></dd>
+                        <dd class="mt-1 text-3xl font-semibold text-indigo-600" x-text="trustLinesToday"></dd>
                     </div>
                 </div>
 
                 <!-- Transactions Today -->
-                <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition duration-150 ease-in-out">
                     <div class="px-4 py-5 sm:p-6">
                         <dt class="text-sm font-medium text-gray-500 truncate">Transactions Today</dt>
-                        <dd class="mt-1 text-3xl font-semibold" x-text="transactionsToday"></dd>
+                        <dd class="mt-1 text-3xl font-semibold text-indigo-600" x-text="transactionsToday"></dd>
                     </div>
                 </div>
 
                 <!-- Uptime -->
-                <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="bg-white overflow-hidden shadow rounded-lg hover:shadow-lg transition duration-150 ease-in-out">
                     <div class="px-4 py-5 sm:p-6">
                         <dt class="text-sm font-medium text-gray-500 truncate">Uptime</dt>
-                        <dd class="mt-1 text-3xl font-semibold" x-text="uptime"></dd>
+                        <dd class="mt-1 text-3xl font-semibold text-indigo-600" x-text="currentUptime" x-ref="uptime"></dd>
                     </div>
                 </div>
             </div>
@@ -82,18 +136,30 @@
                 <div class="bg-white shadow rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
                         <h3 class="text-lg leading-6 font-medium text-gray-900">Recent Activity</h3>
-                        <div class="mt-4">
+                        <div class="mt-4 space-y-4">
                             <template x-if="lastTransaction">
-                                <div class="text-sm text-gray-600">
-                                    <p class="font-medium">Last Transaction:</p>
-                                    <p x-text="lastTransaction"></p>
+                                <div class="p-4 bg-gray-50 rounded-md">
+                                    <p class="font-medium text-gray-900">Last Transaction:</p>
+                                    <p class="mt-1 text-sm text-gray-600 break-all font-mono" x-text="lastTransaction"></p>
                                 </div>
                             </template>
                             <template x-if="lastError">
-                                <div class="mt-4 p-4 bg-red-50 text-red-700 rounded-md">
-                                    <p class="font-medium">Last Error:</p>
-                                    <p x-text="lastError"></p>
+                                <div class="p-4 bg-red-50 rounded-md border-l-4 border-red-400">
+                                    <div class="flex">
+                                        <div class="flex-shrink-0">
+                                            <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                            </svg>
+                                        </div>
+                                        <div class="ml-3">
+                                            <p class="font-medium text-red-800">Error Occurred:</p>
+                                            <p class="mt-1 text-sm text-red-700" x-text="lastError"></p>
+                                        </div>
+                                    </div>
                                 </div>
+                            </template>
+                            <template x-if="!lastTransaction && !lastError">
+                                <div class="text-sm text-gray-500 italic">No recent activity</div>
                             </template>
                         </div>
                     </div>
@@ -114,20 +180,63 @@
                 startTime: '{{ stats.start_time }}',
                 testMode: {{ stats.test_mode | lower }},
                 debugMode: {{ stats.debug_mode | lower }},
+                reconnectAttempts: 0,
+                maxReconnectAttempts: 5,
+                uptimeInterval: null,
+                currentUptime: '-',
                 
                 init() {
                     this.connectWebSocket();
                 },
 
+                startUptimeTimer() {
+                    if (this.uptimeInterval) {
+                        clearInterval(this.uptimeInterval);
+                    }
+                    
+                    this.uptimeInterval = setInterval(() => {
+                        if (this.startTime && this.status === 'running') {
+                            this.currentUptime = this.calculateUptime();
+                        } else {
+                            this.currentUptime = '-';
+                        }
+                    }, 1000);
+                },
+
+                calculateUptime() {
+                    const start = new Date(this.startTime);
+                    const now = new Date();
+                    const diff = Math.floor((now - start) / 1000);
+                    
+                    const hours = Math.floor(diff / 3600);
+                    const minutes = Math.floor((diff % 3600) / 60);
+                    const seconds = diff % 60;
+                    
+                    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                },
+
                 connectWebSocket() {
                     this.ws = new WebSocket('{{ ws_url }}');
+                    
                     this.ws.onmessage = (event) => {
                         const data = JSON.parse(event.data);
                         this.updateStats(data);
+                        this.reconnectAttempts = 0;
                     };
+
                     this.ws.onclose = () => {
-                        // Reconnect after 1 second
-                        setTimeout(() => this.connectWebSocket(), 1000);
+                        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                            this.reconnectAttempts++;
+                            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+                            setTimeout(() => this.connectWebSocket(), delay);
+                        } else {
+                            this.lastError = 'WebSocket connection failed after maximum attempts';
+                            this.status = 'error';
+                        }
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
                     };
                 },
 
@@ -141,23 +250,12 @@
                 },
 
                 toggleMonitor() {
-                    const message = {
-                        type: this.status === 'running' ? 'stop' : 'start'
-                    };
-                    this.ws.send(JSON.stringify(message));
-                },
-
-                get uptime() {
-                    if (!this.startTime || this.status !== 'running') return '-';
-                    const start = new Date(this.startTime);
-                    const now = new Date();
-                    const diff = Math.floor((now - start) / 1000);
-                    
-                    const hours = Math.floor(diff / 3600);
-                    const minutes = Math.floor((diff % 3600) / 60);
-                    const seconds = diff % 60;
-                    
-                    return `${hours}h ${minutes}m ${seconds}s`;
+                    if (this.status !== 'error') {
+                        const message = {
+                            type: this.status === 'running' ? 'stop' : 'start'
+                        };
+                        this.ws.send(JSON.stringify(message));
+                    }
                 }
             }
         }

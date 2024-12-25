@@ -4,12 +4,13 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
 
 ## Features
 
-### Token Monitor (`main.py`)
+### Token Monitor (`memecoin_monitor.py`)
 - Real-time monitoring of specified wallets' trust line operations
 - Automatic trust line replication with configurable limits
-- Smart token purchase system with built-in safety mechanisms
+- Smart token purchase system with built-in safety mechanisms 
 - Heartbeat monitoring for connection health
 - Exponential backoff for reconnection attempts
+- Web interface for monitoring and control
 
 ### Market Monitor (`market_monitor.py`)
 - Tracks token trust line adoption rates
@@ -21,6 +22,8 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
 ## System Requirements
 
 - Python 3.10+
+- Mac OS (start.sh tested on Mac)
+- Node.js and npm (for TailwindCSS)
 - Active XRPL node connection
 - Dependencies listed in `requirements.txt`
 
@@ -39,7 +42,13 @@ A comprehensive Python toolkit for monitoring and analyzing token activities on 
    pip install -r requirements.txt
    ```
 
-3. **Configure the application**:
+3. **Set up web interface directories**:
+   ```bash
+   mkdir templates static
+   cp index.html templates/
+   ```
+
+4. **Configure the application**:
    ```bash
    cp example.config.local.yaml config.local.yaml
    ```
@@ -89,21 +98,23 @@ python3 generate_wallet.py
 
 ### Token Monitor
 
-Experimental: The XPRL token monitor solution is started through a script. The script will start a webserver. Open http://0.0.0.0:8000 and start the token monitor from the web UI.
-
-Standard mode:
+Web interface:
 ```zsh
-./start.sh
+# On Mac:
+./start.sh                  # Standard mode
+./start.sh --test          # Test mode (no transactions)
+./start.sh --debug         # Debug mode
+./start.sh --port 3000     # Custom port (default: 8000)
+
+# On Linux:
+./startOnLinux.sh          # Same options as above
 ```
 
-Test mode (no actual transactions):
+Direct Python execution:
 ```zsh
-./start.sh --test
-```
-
-Debug mode:
-```zsh
-./start.sh --debug
+python3 memecoin_monitor.py    # Standard mode
+python3 memecoin_monitor.py -t # Test mode
+python3 memecoin_monitor.py -d # Debug mode
 ```
 
 ### Market Monitor
@@ -139,15 +150,10 @@ python market_monitor.py --min-volume 5000 --min-trust-lines 10
 
 The project includes comprehensive test coverage using pytest. And yes, unit tests are crucial for maintaining code quality and reliability - even if you happen to be coding from somewhere in "the Industrial North" of England. Whether you're in Silicon Valley or Sheffield, investing in tests pays off through:
 
-- **Reduced Production Incidents**: Tests catch bugs before they reach production, saving both time and reputation
-- **Easier Refactoring**: With good test coverage, you can confidently modify code knowing the tests will catch regressions
-- **Documentation**: Tests serve as executable documentation showing how components should behave
-- **Faster Development**: While writing tests takes time initially, it saves time by catching issues early when they're cheaper to fix
-
-The project's test suite includes:
-
-- **test_config.py**: Validates configuration handling, type safety, and security settings
-- **test_main.py**: Tests core monitoring functionality, transaction handling, and error recovery
+- **Reduced Production Incidents**: Tests catch bugs before they reach production
+- **Easier Refactoring**: Tests catch regressions during code modifications
+- **Documentation**: Tests serve as executable documentation
+- **Faster Development**: Early issue detection saves time
 
 Run the tests:
 ```bash
@@ -169,13 +175,16 @@ pytest -l
 
 ### Project Structure
 ```
-├── memecoin_monitor.py              # Token monitor implementation
-├── market_monitor.py    # Market analysis implementation
-├── config.py           # Configuration management
-├── generate_wallet.py  # Wallet generation utility
-├── web_server.py       # Webserver for the monitoring web UI
-├── start.sh            # Start script for Mac
-├── startOnLinux.sh     # Start script for Linux - not tested
+├── memecoin_monitor.py     # Token monitor implementation
+├── market_monitor.py       # Market analysis implementation
+├── config.py              # Configuration management
+├── generate_wallet.py     # Wallet generation utility
+├── web_server.py          # Webserver for the monitoring web UI
+├── start.sh               # Start script for Mac
+├── startOnLinux.sh        # Start script for Linux - not tested
+├── templates/
+│   └── index.html        # Web UI template
+├── static/               # Static files for web UI
 ├── tests/
 │   ├── test_memecoin_monitor.py
 │   ├── test_config.py
