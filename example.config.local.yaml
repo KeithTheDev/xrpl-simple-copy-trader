@@ -1,0 +1,22 @@
+# Example local configuration - Copy this file to config.local.yaml and update values
+wallets:
+  target_wallet: "rXXXXXXXXXXXXXXX"  # The wallet you want to monitor
+  follower_seed: "sXXXXXXXXXXXXXXX"  # Your follower wallet seed (keep this secret!)
+
+# Optional: Override network settings
+network:
+  websocket_url: "wss://s.altnet.rippletest.net:51233"  # Testnet by default, change for mainnet
+  max_reconnect_attempts: 5  # Increase for more resilience
+  reconnect_delay_seconds: 5  # Delay between reconnection attempts
+
+# Optional: Override trading settings
+trading:
+  initial_purchase_amount: "1"    # Amount to purchase when new trust line is detected
+  min_trust_line_amount: "1000"   # Minimum trust line amount to set
+  max_trust_line_amount: "10000"  # Maximum trust line amount to set
+
+# Optional: Override logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  filename: "xrpl_trader.log"

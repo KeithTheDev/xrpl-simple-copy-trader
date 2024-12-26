@@ -22,3 +22,6 @@ dist/
 
 # MacOS system files
 .DS_Store
+
+# Local configuration
+config.local.yaml
