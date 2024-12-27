@@ -165,15 +165,46 @@ class Config:
 
     def validate(self) -> bool:
         """Validate required configuration values"""
-        required_values = [
-            ('wallets', 'target_wallet'),
-            ('wallets', 'follower_seed'),
-            ('network', 'websocket_url'),
-        ]
-        
-        for keys in required_values:
-            value = self.get(*keys)
-            if not value:
-                print(f"Missing required configuration: {'.'.join(keys)}")
+        try:
+            from xrpl.wallet import Wallet
+            
+            target_wallet = self.get('wallets', 'target_wallet')
+            follower_seed = self.get('wallets', 'follower_seed')
+            websocket_url = self.get('network', 'websocket_url')
+
+            if not os.path.exists(self.config_path):
+                print(f"\nError: {self.config_path} not found")
+                print(f"Copy example.config.local.yaml to {self.config_path} and update the wallet settings")
                 return False
-        return True
+
+            if not target_wallet:
+                print("\nError: Missing target_wallet in config")
+                print(f"Add a target wallet address to {self.config_path} (NOT in config.yaml)")
+                print("This file is not source controlled and safe for secrets")
+                return False
+
+            if not follower_seed:
+                print("\nError: Missing follower_seed in config")
+                print("Run generate_wallet.py to create a new wallet")
+                print(f"Then add the seed to {self.config_path} (NOT in config.yaml)")
+                print("This file is not source controlled and safe for secrets")
+                return False
+                
+            if not websocket_url:
+                print("\nError: Missing websocket_url in config")
+                print("Add a valid XRPL websocket URL to config.local.yaml")
+                return False
+
+            # Validate follower seed format
+            try:
+                Wallet.from_seed(follower_seed)
+            except Exception as e:
+                print(f"\nError: Invalid follower_seed format: {e}")
+                print("Run generate_wallet.py to generate a valid wallet")
+                return False
+
+            return True
+            
+        except Exception as e:
+            print(f"\nError validating config: {e}")
+            return False

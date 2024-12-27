@@ -139,7 +139,7 @@ async def broadcast_stats():
     """Broadcast current stats to all connected clients"""
     if not active_connections:
         return
-    
+
     message_data = json.dumps(monitor_stats)
     logging.debug(f"Broadcasting stats to {len(active_connections)} clients: {monitor_stats}")
     await asyncio.gather(*[client.send_text(message_data) for client in active_connections], return_exceptions=True)
