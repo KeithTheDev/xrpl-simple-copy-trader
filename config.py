@@ -58,6 +58,7 @@ class Config:
             with open("config.yaml", 'r') as f:
                 default_file_config = yaml.safe_load(f) or {}
                 config = self._merge_configs(config, default_file_config)
+                print("Loaded config.yaml successfully.")
         except FileNotFoundError:
             print("Warning: Config file config.yaml not found")
         except yaml.YAMLError as e:
@@ -69,10 +70,15 @@ class Config:
                 with open(self.config_path, 'r') as f:
                     local_config = yaml.safe_load(f) or {}
                     config = self._merge_configs(config, local_config)
+                    print(f"Loaded {self.config_path} successfully.")
             except FileNotFoundError:
                 print(f"Warning: Config file {self.config_path} not found")
             except yaml.YAMLError as e:
                 print(f"Error parsing config file {self.config_path}: {e}")
+        
+        # Log the merged configuration for debugging
+        print("Merged Configuration:")
+        print(yaml.dump(config, sort_keys=False))
         
         # Validate and sanitize configuration
         self._validate_and_convert_types(config)
@@ -88,6 +94,7 @@ class Config:
             if 'websocket_url' in net_config:
                 url = net_config['websocket_url']
                 if not self._is_valid_websocket_url(url):
+                    print(f"Invalid websocket_url: {url}. Reverting to default.")
                     net_config['websocket_url'] = self.DEFAULT_CONFIG['network']['websocket_url']
             
             # Convert numeric values to correct types
@@ -95,12 +102,14 @@ class Config:
                 try:
                     net_config['max_reconnect_attempts'] = int(net_config['max_reconnect_attempts'])
                 except (ValueError, TypeError):
+                    print(f"Invalid max_reconnect_attempts: {net_config['max_reconnect_attempts']}. Reverting to default.")
                     net_config['max_reconnect_attempts'] = self.DEFAULT_CONFIG['network']['max_reconnect_attempts']
             
             if 'reconnect_delay_seconds' in net_config:
                 try:
                     net_config['reconnect_delay_seconds'] = int(float(net_config['reconnect_delay_seconds']))
                 except (ValueError, TypeError):
+                    print(f"Invalid reconnect_delay_seconds: {net_config['reconnect_delay_seconds']}. Reverting to default.")
                     net_config['reconnect_delay_seconds'] = self.DEFAULT_CONFIG['network']['reconnect_delay_seconds']
 
         # Trading settings
@@ -113,17 +122,20 @@ class Config:
                     try:
                         value = float(str(trade_config[key]))
                         if value <= 0:
+                            print(f"{key} must be positive. Reverting to default.")
                             trade_config[key] = self.DEFAULT_CONFIG['trading'][key]
                         elif key == 'initial_purchase_amount':
                             trade_config[key] = str(value)  # Keep as string
                         else:
                             trade_config[key] = int(value)  # Convert to int for trust line amounts
                     except (ValueError, TypeError):
+                        print(f"Invalid {key}: {trade_config[key]}. Reverting to default.")
                         trade_config[key] = self.DEFAULT_CONFIG['trading'][key]
             
             # Ensure max >= min for trust line amounts
             try:
                 if float(trade_config['max_trust_line_amount']) < float(trade_config['min_trust_line_amount']):
+                    print("max_trust_line_amount is less than min_trust_line_amount. Reverting both to defaults.")
                     trade_config['max_trust_line_amount'] = self.DEFAULT_CONFIG['trading']['max_trust_line_amount']
                     trade_config['min_trust_line_amount'] = self.DEFAULT_CONFIG['trading']['min_trust_line_amount']
             except (KeyError, ValueError, TypeError):

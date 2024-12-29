@@ -1,0 +1,40 @@
+flowchart TB
+    subgraph Data Collection
+        XRPL[XRPL Network]
+        MM[Market Monitor]
+        PM[Price Monitor]
+        MM --> |Trust lines & Trades| DB[(MongoDB)]
+        PM --> |Price Updates| DB
+    end
+
+    subgraph Event Processing
+        DB --> EP[Event Processor]
+        EP --> |Token Events| TS[Token Stats]
+        EP --> |Wallet Events| WS[Wallet Stats]
+        TS --> FM[Feature Matrix Builder]
+        WS --> FM
+    end
+
+    subgraph Analysis
+        FM --> |Training Data| ML[ML Models]
+        ML --> |Predictions| AP[Analysis Pipeline]
+        
+        subgraph ML Models
+            ML --> WR[Wallet Ranking]
+            ML --> TP[Token Prediction]
+            ML --> NA[Network Analysis]
+        end
+    end
+
+    subgraph Output
+        AP --> |Alerts & Insights| UI[User Interface]
+        AP --> |Signals| NS[Notification System]
+    end
+
+    classDef primary fill:#f9f,stroke:#333,stroke-width:4px
+    classDef secondary fill:#bbf,stroke:#333,stroke-width:2px
+    classDef storage fill:#ff9,stroke:#333,stroke-width:2px
+    
+    class MM,PM primary
+    class EP,TS,WS,FM secondary
+    class DB storage
