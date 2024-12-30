@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timedelta
-from db_handler import XRPLDatabase
+from utils.db_handler import XRPLDatabase
 
 class TestXRPLDatabase:
     @pytest.fixture

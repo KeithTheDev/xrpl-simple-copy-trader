@@ -13,7 +13,7 @@ from utils.xrpl_base_monitor import XRPLBaseMonitor
 from utils.xrpl_transaction_parser import XRPLTransactionParser, TrustSetInfo, PaymentInfo
 from utils.xrpl_logger import XRPLLogger
 from config import Config
-from db_handler import XRPLDatabase
+from utils.db_handler import XRPLDatabase
 
 class TokenInfo:
     """Class to track token information"""

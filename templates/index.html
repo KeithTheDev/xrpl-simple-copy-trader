@@ -8,8 +8,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Alpine.js -->
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Heroicons -->
+    <script src="https://unpkg.com/@heroicons/v1/outline"></script>
     <style>
-        /* Add any custom styles here */
+        .mode-badge {
+            transition: all 0.2s ease;
+        }
+        .mode-badge:hover {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -31,10 +38,29 @@
 
         <!-- Header -->
         <header class="bg-white shadow">
-            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-                <h1 class="text-3xl font-bold text-gray-900">XRPL Monitor Dashboard</h1>
-            </div>
-            <div class="flex justify-end p-4">
+            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <h1 class="text-3xl font-bold text-gray-900">XRPL Monitor Dashboard</h1>
+                    <div class="flex gap-3">
+                        <template x-if="testMode">
+                            <span class="mode-badge inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-amber-100 text-amber-800 border border-amber-200 shadow-sm">
+                                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                                Test Mode
+                            </span>
+                        </template>
+                        <template x-if="debugMode">
+                            <span class="mode-badge inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-sm">
+                                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                                Debug Mode
+                            </span>
+                        </template>
+                    </div>
+                </div>
                 <button 
                     @click="toggleMonitor()"
                     :class="{
@@ -43,322 +69,259 @@
                         'opacity-50 cursor-not-allowed': status === 'error'
                     }"
                     :disabled="status === 'error'"
-                    class="px-4 py-2 text-white rounded-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center">
-                    <span x-text="status === 'running' ? 'Stop' : 'Start'"></span>
-                    <!-- Two-Tone Pill-shaped Spinner -->
-                    <svg x-show="status === 'starting'" class="animate-spin ml-2 h-5 w-10" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40" fill="none">
-                        <rect width="100" height="40" rx="20" fill="url(#grad1)" />
-                        <defs>
-                            <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stop-color="red" stop-opacity="1" />
-                                <stop offset="50%" stop-color="red" stop-opacity="1" />
-                                <stop offset="50%" stop-color="yellow" stop-opacity="1" />
-                                <stop offset="100%" stop-color="yellow" stop-opacity="1" />
-                            </linearGradient>
-                        </defs>
-                    </svg>
+                    class="px-4 py-2 text-white rounded-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2">
+                    <span x-text="status === 'running' ? 'Stop Monitor' : 'Start Monitor'"></span>
                 </button>
             </div>
         </header>
-
-        <!-- Main Content -->
-        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-            <!-- Statistics Section -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
-                <!-- Status Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Status</h3>
-                    <div class="mt-2 flex items-center">
-                        <p class="text-2xl font-semibold text-gray-700" x-text="status"></p>
-                        <!-- Two-Tone Rotating Pill Spinner -->
-                        <svg x-show="status === 'running'" class="animate-spin ml-3 h-5 w-10" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40" fill="none">
-                            <rect width="100" height="40" rx="20" fill="url(#grad2)" />
-                            <defs>
-                                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
-                                    <stop offset="0%" stop-color="red" stop-opacity="1" />
-                                    <stop offset="50%" stop-color="red" stop-opacity="1" />
-                                    <stop offset="50%" stop-color="yellow" stop-opacity="1" />
-                                    <stop offset="100%" stop-color="yellow" stop-opacity="1" />
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                    </div>
-                </div>
-                <!-- Trust Lines Today Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Trust Lines Today</h3>
-                    <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="trustLinesToday"></p>
-                </div>
-                <!-- Transactions Today Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Transactions Today</h3>
-                    <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="transactionsToday"></p>
-                </div>
-                <!-- Uptime Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Uptime</h3>
-                    <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="currentUptime"></p>
-                </div>
-                
-                <!-- Debug Mode Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Debug Mode</h3>
-                    <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="debugMode ? 'Enabled' : 'Disabled'"></p>
-                </div>
-                <!-- Test Mode Card -->
-                <div class="bg-white shadow rounded-lg p-6">
-                    <h3 class="text-lg font-medium text-gray-900">Test Mode</h3>
-                    <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="testMode ? 'Enabled' : 'Disabled'"></p>
-                </div>
+<!-- Main Content -->
+<main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <!-- Statistics Section -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <!-- Status Card -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900">Status</h3>
+            <div class="mt-2 flex items-center">
+                <p class="text-2xl font-semibold text-gray-700" x-text="status"></p>
+                <!-- Two-Tone Rotating Pill Spinner -->
+                <svg x-show="status === 'running'" class="animate-spin ml-3 h-5 w-10" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40" fill="none">
+                    <rect width="100" height="40" rx="20" fill="url(#grad2)" />
+                    <defs>
+                        <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="red" stop-opacity="1" />
+                            <stop offset="50%" stop-color="red" stop-opacity="1" />
+                            <stop offset="50%" stop-color="yellow" stop-opacity="1" />
+                            <stop offset="100%" stop-color="yellow" stop-opacity="1" />
+                        </linearGradient>
+                    </defs>
+                </svg>
             </div>
-
-            <!-- Recent Activity -->
-            <div class="mt-8 bg-white shadow rounded-lg p-6">
-                <h3 class="text-lg font-medium text-gray-900">Recent Activity</h3>
-                <div class="mt-4">
-                    <template x-if="lastTransaction">
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0">
-                                <!-- Success Icon -->
-                                <svg class="h-6 w-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                                </svg>
-                            </div>
-                            <div class="ml-3">
-                                <p class="text-sm text-gray-700">Last Transaction:</p>
-                                <p class="mt-1 text-sm font-medium text-gray-900" x-text="lastTransaction"></p>
-                            </div>
-                        </div>
-                    </template>
-                    <template x-if="lastError">
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0">
-                                <!-- Error Icon -->
-                                <svg class="h-6 w-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </div>
-                            <div class="ml-3">
-                                <p class="text-sm text-red-700">Error:</p>
-                                <p class="mt-1 text-sm text-red-700" x-text="lastError"></p>
-                            </div>
-                        </div>
-                    </template>
-                    <template x-if="!lastTransaction && !lastError">
-                        <div class="text-sm text-gray-500 italic">No recent activity</div>
-                    </template>
-                </div>
-            </div>
-
-            <!-- Coin Animation Popup -->
-            <template x-if="showCoinAnimation">
-                <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-                    <div class="bg-white p-8 rounded-lg shadow-lg flex flex-col items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
-                            <circle cx="50" cy="50" r="45" fill="#F59E0B" stroke="#D97706" stroke-width="5"/>
-                            <text x="50%" y="55%" text-anchor="middle" fill="#FFFFFF" font-size="40px" font-family="Arial" dy=".3em">$</text>
-                        </svg>
-                        <p class="mt-4 text-lg font-semibold text-gray-800">Transaction Completed</p>
-                    </div>
-                </div>
-            </template>
-
-            <!-- XRP Animation Popup -->
-            <template x-if="showXrpAnimation">
-                <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-                    <div class="bg-white p-8 rounded-lg shadow-lg flex flex-col items-center">
-                        <img src="https://altcoinsbox.com/wp-content/uploads/2023/01/xrp-logo.jpg" alt="XRP Logo" class="h-24 w-24 animate-pulse">
-                        <p class="mt-4 text-lg font-semibold text-gray-800">XRP Trust Line Set</p>
-                    </div>
-                </div>
-            </template>
-        </main>
+        </div>
+        <!-- Trust Lines Today Card -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900">Trust Lines Today</h3>
+            <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="trustLinesToday"></p>
+        </div>
+        <!-- Transactions Today Card -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900">Transactions Today</h3>
+            <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="transactionsToday"></p>
+        </div>
+        <!-- Uptime Card -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900">Uptime</h3>
+            <p class="mt-2 text-2xl font-semibold text-gray-700" x-text="currentUptime"></p>
+        </div>
     </div>
 
-    <script>
-        function dashboard() {
-            return {
-                ws: null,
-                status: '{{ stats.status }}',
-                trustLinesToday: {{ stats.trust_lines_today }},
-                transactionsToday: {{ stats.transactions_today }},
-                lastTransaction: '{{ stats.last_transaction }}',
-                lastError: '{{ stats.last_error }}',
-                startTime: '{{ stats.start_time }}',
-                testMode: {{ stats.test_mode | lower }},
-                debugMode: {{ stats.debug_mode | lower }},
-                reconnectAttempts: 0,
-                maxReconnectAttempts: 5,
-                uptimeInterval: null,
-                currentUptime: '-',
+    <!-- Recent Activity -->
+    <div class="mt-8 bg-white shadow rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900">Recent Activity</h3>
+        <div class="mt-4">
+            <template x-if="lastTransaction">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <!-- Success Icon -->
+                        <svg class="h-6 w-6 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-gray-700">Last Transaction:</p>
+                        <p class="mt-1 text-sm font-medium text-gray-900" x-text="lastTransaction"></p>
+                    </div>
+                </div>
+            </template>
+            <template x-if="lastError">
+                <div class="flex items-start">
+                    <div class="flex-shrink-0">
+                        <!-- Error Icon -->
+                        <svg class="h-6 w-6 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-700">Error:</p>
+                        <p class="mt-1 text-sm text-red-700" x-text="lastError"></p>
+                    </div>
+                </div>
+            </template>
+            <template x-if="!lastTransaction && !lastError">
+                <div class="text-sm text-gray-500 italic">No recent activity</div>
+            </template>
+        </div>
+    </div>
 
-                // Control visibility of XRP and Coin animations
-                showXrpAnimation: false,
-                showCoinAnimation: false,
+    <!-- XRP Animation Popup -->
+    <template x-if="showXrpAnimation">
+        <div class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+            <div class="bg-white p-8 rounded-lg shadow-lg flex flex-col items-center">
+                <img src="https://altcoinsbox.com/wp-content/uploads/2023/01/xrp-logo.jpg" alt="XRP Logo" class="h-24 w-24 animate-pulse">
+                <p class="mt-4 text-lg font-semibold text-gray-800">XRP Trust Line Set</p>
+            </div>
+        </div>
+    </template>
+</main>
+</div>
 
-                init() {
-                    this.connectWebSocket();
-                    this.listenForNotifications();
-                },
+<script>
+function dashboard() {
+    return {
+        ws: null,
+        status: '{{ stats.status }}',
+        trustLinesToday: {{ stats.trust_lines_today }},
+        transactionsToday: {{ stats.transactions_today }},
+        lastTransaction: '{{ stats.last_transaction }}',
+        lastError: '{{ stats.last_error }}',
+        startTime: '{{ stats.start_time }}',
+        testMode: {% if stats.test_mode %}true{% else %}false{% endif %},
+        debugMode: {% if stats.debug_mode %}true{% else %}false{% endif %},
+        reconnectAttempts: 0,
+        maxReconnectAttempts: 5,
+        uptimeInterval: null,
+        currentUptime: '-',
+        showXrpAnimation: false,
 
-                listenForNotifications() {
-                    window.addEventListener('notify', event => {
-                        const { message, type } = event.detail;
-                        this.showNotification(message, type);
-                    });
-                },
+        init() {
+            this.connectWebSocket();
+            this.listenForNotifications();
+        },
 
-                showNotification(message, type) {
-                    // Dynamic notification component
-                    const notif = document.querySelector('[x-data="{ show: false, message: \'\', type: \'info\' }"]');
-                    if (notif) {
-                        notif.__x.$data.show = true;
-                        notif.__x.$data.message = message;
-                        notif.__x.$data.type = type;
+        listenForNotifications() {
+            window.addEventListener('notify', event => {
+                const { message, type } = event.detail;
+                this.showNotification(message, type);
+            });
+        },
 
-                        setTimeout(() => {
-                            notif.__x.$data.show = false;
-                        }, 3000);
-                    } else {
-                        console.error("Notification component not found.");
+        showNotification(message, type) {
+            const notif = document.querySelector('[x-data="{ show: false, message: \'\', type: \'info\' }"]');
+            if (notif) {
+                notif.__x.$data.show = true;
+                notif.__x.$data.message = message;
+                notif.__x.$data.type = type;
+
+                setTimeout(() => {
+                    notif.__x.$data.show = false;
+                }, 3000);
+            } else {
+                console.error("Notification component not found.");
+            }
+        },
+
+        startUptimeTimer() {
+            if (this.uptimeInterval) {
+                clearInterval(this.uptimeInterval);
+            }
+            
+            this.uptimeInterval = setInterval(() => {
+                if (this.startTime && this.status === 'running') {
+                    this.currentUptime = this.calculateUptime();
+                } else {
+                    this.currentUptime = '-';
+                }
+            }, 1000);
+        },
+
+        calculateUptime() {
+            const start = new Date(this.startTime);
+            const now = new Date();
+            const diff = Math.floor((now - start) / 1000);
+            
+            const hours = Math.floor(diff / 3600);
+            const minutes = Math.floor((diff % 3600) / 60);
+            const seconds = diff % 60;
+            
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        },
+
+        connectWebSocket() {
+            this.ws = new WebSocket('{{ ws_url }}');
+            
+            this.ws.onopen = () => {
+                console.log("WebSocket connection established.");
+            };
+
+            this.ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('Received data:', data);
+                this.updateStats(data);
+                this.reconnectAttempts = 0;
+            };
+
+            this.ws.onclose = () => {
+                console.warn("WebSocket connection closed.");
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+                    console.log(`Attempting to reconnect in ${delay}ms...`);
+                    setTimeout(() => this.connectWebSocket(), delay);
+                } else {
+                    this.lastError = 'WebSocket connection failed after maximum attempts';
+                    this.status = 'error';
+                    this.notify('WebSocket connection failed after maximum attempts', 'error');
+                }
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        },
+
+        updateStats(data) {
+            const wasTrustSet = this.lastTransaction && this.lastTransaction.startsWith('TrustSet');
+            const isTrustSet = data.last_transaction && data.last_transaction.startsWith('TrustSet');
+
+            // Update stats
+            this.status = data.status;
+            this.trustLinesToday = data.trust_lines_today;
+            this.transactionsToday = data.transactions_today;
+            this.lastTransaction = data.last_transaction;
+            this.lastError = data.last_error;
+            this.startTime = data.start_time;
+            this.testMode = data.test_mode;
+            this.debugMode = data.debug_mode;
+
+            if (!wasTrustSet && isTrustSet && data.last_transaction !== 'Unknown') {
+                this.triggerXrpAnimation();
+            }
+
+            if (!this.uptimeInterval) {
+                this.startUptimeTimer();
+            }
+        },
+
+        triggerXrpAnimation() {
+            this.showXrpAnimation = true;
+            setTimeout(() => {
+                this.showXrpAnimation = false;
+            }, 2000);
+        },
+
+        toggleMonitor() {
+            if (this.status !== 'error') {
+                const message = {
+                    type: this.status === 'running' ? 'stop' : 'start'
+                };
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(message));
+                    this.notify(`Monitor ${this.status === 'running' ? 'stopped' : 'started'}`, 'info');
+                    if (message.type === 'start') {
+                        this.status = 'starting';
                     }
-                },
-
-                startUptimeTimer() {
-                    if (this.uptimeInterval) {
-                        clearInterval(this.uptimeInterval);
-                    }
-                    
-                    this.uptimeInterval = setInterval(() => {
-                        if (this.startTime && this.status === 'running') {
-                            this.currentUptime = this.calculateUptime();
-                        } else {
-                            this.currentUptime = '-';
-                        }
-                    }, 1000);
-                },
-
-                calculateUptime() {
-                    const start = new Date(this.startTime);
-                    const now = new Date();
-                    const diff = Math.floor((now - start) / 1000);
-                    
-                    const hours = Math.floor(diff / 3600);
-                    const minutes = Math.floor((diff % 3600) / 60);
-                    const seconds = diff % 60;
-                    
-                    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                },
-
-                connectWebSocket() {
-                    this.ws = new WebSocket('{{ ws_url }}');
-                    
-                    this.ws.onopen = () => {
-                        console.log("WebSocket connection established.");
-                    };
-
-                    this.ws.onmessage = (event) => {
-                        const data = JSON.parse(event.data);
-                        console.log('Received data:', data); // Debug log
-                        this.updateStats(data);
-                        this.reconnectAttempts = 0;
-                    };
-
-                    this.ws.onclose = () => {
-                        console.warn("WebSocket connection closed.");
-                        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                            this.reconnectAttempts++;
-                            const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-                            console.log(`Attempting to reconnect in ${delay}ms...`);
-                            setTimeout(() => this.connectWebSocket(), delay);
-                        } else {
-                            this.lastError = 'WebSocket connection failed after maximum attempts';
-                            this.status = 'error';
-                            this.notify('WebSocket connection failed after maximum attempts', 'error');
-                        }
-                    };
-
-                    this.ws.onerror = (error) => {
-                        console.error('WebSocket error:', error);
-                    };
-                },
-
-                updateStats(data) {
-                    // Check if a new TrustSet transaction has been detected
-                    const wasTrustSet = this.lastTransaction && this.lastTransaction.startsWith('TrustSet');
-                    const isTrustSet = data.last_transaction && data.last_transaction.startsWith('TrustSet');
-
-                    // Check if a new transaction has been detected
-                    const wasTransaction = this.lastTransaction && this.lastTransaction !== 'Unknown';
-                    const isNewTransaction = data.last_transaction && data.last_transaction !== 'Unknown' && data.last_transaction !== this.lastTransaction;
-
-                    // Update stats
-                    this.status = data.status;
-                    this.trustLinesToday = data.trust_lines_today;
-                    this.transactionsToday = data.transactions_today;
-                    this.lastTransaction = data.last_transaction;
-                    this.lastError = data.last_error;
-                    this.startTime = data.start_time;
-
-                    console.log(`wasTrustSet: ${wasTrustSet}, isTrustSet: ${isTrustSet}`);
-                    console.log(`wasTransaction: ${wasTransaction}, isNewTransaction: ${isNewTransaction}`);
-
-                    // Trigger XRP animation if a new TrustSet transaction is detected
-                    if (!wasTrustSet && isTrustSet && data.last_transaction !== 'Unknown') {
-                        console.log('Triggering XRP animation');
-                        this.triggerXrpAnimation();
-                    }
-
-                    // Trigger Coin animation if a new transaction is detected
-                    if (!wasTransaction && isNewTransaction) {
-                        console.log('Triggering Coin animation');
-                        this.triggerCoinAnimation();
-                    }
-
-                    // Update Uptime
-                    if (!this.uptimeInterval) {
-                        this.startUptimeTimer();
-                    }
-                },
-
-                triggerXrpAnimation() {
-                    console.log('XRP Animation triggered');
-                    this.showXrpAnimation = true;
-                    setTimeout(() => {
-                        this.showXrpAnimation = false;
-                    }, 2000); // Animation duration in milliseconds
-                },
-
-                triggerCoinAnimation() {
-                    console.log('Coin Animation triggered');
-                    this.showCoinAnimation = true;
-                    setTimeout(() => {
-                        this.showCoinAnimation = false;
-                    }, 2000); // Animation duration in milliseconds
-                },
-
-                toggleMonitor() {
-                    if (this.status !== 'error') {
-                        const message = {
-                            type: this.status === 'running' ? 'stop' : 'start'
-                        };
-                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                            this.ws.send(JSON.stringify(message));
-                            this.notify(`Monitor ${this.status === 'running' ? 'stopped' : 'started'}`, 'info');
-                            if (message.type === 'start') {
-                                this.status = 'starting'; // Temporary status to show spinner
-                            }
-                        } else {
-                            this.notify('WebSocket is not connected.', 'error');
-                        }
-                    }
-                },
-
-                notify(message, type = 'info') {
-                    window.dispatchEvent(new CustomEvent('notify', { detail: { message, type } }));
+                } else {
+                    this.notify('WebSocket is not connected.', 'error');
                 }
             }
+        },
+
+        notify(message, type = 'info') {
+            window.dispatchEvent(new CustomEvent('notify', { 
+                detail: { message, type }
+            }));
         }
-    </script>
+    }
+}
+</script>
 </body>
-</html>
+</html>        

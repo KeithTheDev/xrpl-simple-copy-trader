@@ -2,7 +2,7 @@
 # example.config.local.yaml
 # Example local configuration - Copy this file to config.local.yaml and update values
 wallets:
-  target_wallet: "rXXXXXXXXXXXXXXX"  # The wallet you want to monitor
+  followe_wallet: "rXXXXXXXXXXXXXXX"  # Your follower wallet public address
   follower_seed: "sXXXXXXXXXXXXXXX"  # Your follower wallet seed (keep this secret!)
 
 # Optional: Override network settings

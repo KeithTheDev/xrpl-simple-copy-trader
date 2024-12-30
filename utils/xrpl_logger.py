@@ -45,7 +45,8 @@ class XRPLLogger:
                  use_colors: bool = True):
         """Initialize logger with specified configuration."""
         self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG if debug else getattr(logging, log_level.upper()))
+        self.level = logging.DEBUG if debug else getattr(logging, log_level.upper())
+        self.logger.setLevel(self.level)
         self.test_mode = test_mode
         self.use_colors = use_colors
         
@@ -57,7 +58,7 @@ class XRPLLogger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_formatter = logging.Formatter('%(message)s')
         console_handler.setFormatter(console_formatter)
-        console_handler.setLevel(logging.DEBUG if debug else getattr(logging, log_level.upper()))
+        console_handler.setLevel(self.level)
         self.logger.addHandler(console_handler)
         
         # File handler if specified
@@ -72,6 +73,10 @@ class XRPLLogger:
             file_handler.setFormatter(file_formatter)
             file_handler.setLevel(logging.INFO)
             self.logger.addHandler(file_handler)
+
+    def isEnabledFor(self, level: int) -> bool:
+        """Check if a logging level is enabled."""
+        return self.logger.isEnabledFor(level)
 
     def _colorize(self, text: str, color: str) -> str:
         """Add color to text if colors are enabled"""
@@ -107,7 +112,7 @@ class XRPLLogger:
 
     # Error handling methods
     def error_with_context(self, error_type: str, error: Exception,
-                          context: str = "") -> None:
+                        context: str = "") -> None:
         """Log error with additional context"""
         msg = [
             f"\n{self.EMOJIS['error']} Error in {error_type}: {str(error)}"
@@ -123,7 +128,7 @@ class XRPLLogger:
 
     # Token-related logging methods
     def log_token_discovery(self, currency: str, issuer: str, value: str,
-                          test_mode: Optional[bool] = None) -> None:
+                        test_mode: Optional[bool] = None) -> None:
         """Log new token discovery"""
         msg = [
             f"\n{self.EMOJIS['new_token']} New token discovered!",
@@ -134,8 +139,8 @@ class XRPLLogger:
         self.info("\n".join(msg))
 
     def log_trust_line_update(self, currency: str, issuer: str, 
-                            trust_lines: int, removed: bool = False,
-                            test_mode: Optional[bool] = None) -> None:
+                           trust_lines: int, removed: bool = False,
+                           test_mode: Optional[bool] = None) -> None:
         """Log trust line changes"""
         action = "removed from" if removed else "added to"
         msg = [
@@ -146,8 +151,8 @@ class XRPLLogger:
         self.info("\n".join(msg))
 
     def log_hot_token(self, currency: str, issuer: str, 
-                     trust_lines: int, time_to_hot: datetime,
-                     test_mode: Optional[bool] = None) -> None:
+                    trust_lines: int, time_to_hot: datetime,
+                    test_mode: Optional[bool] = None) -> None:
         """Log when token reaches 'hot' status"""
         msg = [
             f"\n{self.EMOJIS['hot_token']} Token reached {trust_lines} trust lines!",
@@ -158,8 +163,8 @@ class XRPLLogger:
         self.success("\n".join(msg))
 
     def log_trade(self, currency: str, issuer: str, amount: str,
-                 total_volume: str, total_trades: int, trust_lines: int,
-                 is_hot: bool = False, test_mode: Optional[bool] = None) -> None:
+                total_volume: str, total_trades: int, trust_lines: int,
+                is_hot: bool = False, test_mode: Optional[bool] = None) -> None:
         """Log trading activity"""
         emoji = self.EMOJIS['hot_trade'] if is_hot else self.EMOJIS['trade']
         prefix = "Hot token" if is_hot else "Token"
@@ -175,9 +180,8 @@ class XRPLLogger:
         msg.append("")
         self.info("\n".join(msg))
 
-    # Status and monitoring logging
     def log_status_update(self, total_tokens: int, hot_tokens: int,
-                         token_details: List[str] = None) -> None:
+                       token_details: List[str] = None) -> None:
         """Log periodic status update"""
         status = [
             f"{self._colorize('='*50, 'yellow')}",
@@ -208,7 +212,7 @@ class XRPLLogger:
 
     # Debugging methods
     def log_debug_transaction(self, tx_type: str, tx_hash: str,
-                            details: Dict[str, Any]) -> None:
+                          details: Dict[str, Any]) -> None:
         """Log transaction details for debugging"""
         if self.logger.isEnabledFor(logging.DEBUG):
             msg = [

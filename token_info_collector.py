@@ -8,7 +8,7 @@ from xrpl.asyncio.clients import AsyncWebsocketClient
 from xrpl.models.requests import AccountLines, BookOffers, GatewayBalances
 from xrpl.models.amounts import IssuedCurrencyAmount
 from config import Config
-from db_handler import XRPLDatabase
+from utils.db_handler import XRPLDatabase
 
 class XRPLTokenInfoCollector:
     def __init__(self, config: Config, debug: bool = False):

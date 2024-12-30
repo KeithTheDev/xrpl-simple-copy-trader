@@ -1,3 +1,5 @@
+# generate_wallet.py
+
 import json
 from xrpl.wallet import Wallet
 
@@ -5,13 +7,15 @@ from xrpl.wallet import Wallet
 wallet = Wallet.create()
 
 wallet_info = {
-    "public_address": wallet.classic_address,
-    "seed": wallet.seed
+    "follower_wallet": wallet.classic_address,   # Public XRPL address
+    "follower_seed": wallet.seed                 # Private seed (keep secret!)
 }
 
 print("\nWallet Details:")
 print(json.dumps(wallet_info, indent=2))
 
 print("\nAdd these values to your config.local.yaml:")
-print(f"target_wallet: {wallet.classic_address}")
-print(f"follower_seed: {wallet.seed}")
+print("wallets:")
+print(f"  follower_wallet: \"{wallet.classic_address}\"  # Your public XRPL address")
+print(f"  follower_seed: \"{wallet.seed}\"  # Your private seed - keep this secret!")
+print("  target_wallet: \"\"  # Add the public address (starting with 'r') of the wallet you want to follow")

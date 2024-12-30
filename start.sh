@@ -11,6 +11,7 @@ NC='\033[0m' # No Color
 PORT=8000
 DEBUG=false
 TEST_MODE=false
+MODE="web"  # Default mode is web server
 
 # Change to script directory
 cd "$(dirname "$0")"
@@ -19,7 +20,11 @@ cd "$(dirname "$0")"
 show_help() {
     echo "XRPL Token Monitor"
     echo
-    echo "Usage: ./start.sh [options]"
+    echo "Usage: ./start.sh [options] [mode]"
+    echo
+    echo "Modes:"
+    echo "  web       Start web interface (default)"
+    echo "  memecoin  Start memecoin monitor directly"
     echo
     echo "Options:"
     echo "  -h, --help          Show this help message"
@@ -50,6 +55,16 @@ check_python() {
     echo "$python_cmd"
 }
 
+# Check MongoDB
+check_mongodb() {
+    if ! brew services list | grep -q "mongodb-community.*started"; then
+        echo -e "${RED}MongoDB is not running${NC}"
+        echo "Start MongoDB using:"
+        echo "  brew services start mongodb-community"
+        exit 1
+    fi
+}
+
 # Parse command line arguments
 while (( $# > 0 )); do
     case "$1" in
@@ -69,6 +84,10 @@ while (( $# > 0 )); do
             TEST_MODE=true
             shift
             ;;
+        web|memecoin)
+            MODE="$1"
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
             show_help
@@ -80,6 +99,9 @@ done
 # Get Python command
 PYTHON_CMD="$(check_python)"
 echo -e "${BLUE}Using Python: $($PYTHON_CMD --version)${NC}"
+
+# Check MongoDB
+check_mongodb
 
 # Check if virtual environment exists
 if [ ! -d "venv" ]; then
@@ -95,8 +117,19 @@ fi
 # Get Python from venv
 VENV_PY="$(which python3)"
 
-# Build array of arguments
-ARGS=("web_server.py" "--port" "$PORT")
+# Build array of arguments based on mode
+case "$MODE" in
+    web)
+        SCRIPT="web_server.py"
+        ARGS=("--port" "$PORT")
+        ;;
+    memecoin)
+        SCRIPT="memecoin_monitor.py"
+        ARGS=()
+        ;;
+esac
+
+# Add debug and test flags if enabled
 if [ "$DEBUG" = true ]; then
     ARGS+=("--debug")
 fi
@@ -105,18 +138,22 @@ if [ "$TEST_MODE" = true ]; then
 fi
 
 # Print startup information
-echo -e "${GREEN}Starting XRPL Token Monitor${NC}"
+echo -e "${GREEN}Starting XRPL Token Monitor - $MODE mode${NC}"
 echo -e "${BLUE}Configuration:${NC}"
-echo "  Port: $PORT"
+echo "  Mode: $MODE"
+[ "$MODE" = "web" ] && echo "  Port: $PORT"
 echo "  Debug mode: $DEBUG"
 echo "  Test mode: $TEST_MODE"
 echo
-echo -e "${BLUE}When started, open your browser at:${NC}"
-echo "  http://localhost:$PORT"
-echo
 
-# Run the server
-"$VENV_PY" "${ARGS[@]}"
+if [ "$MODE" = "web" ]; then
+    echo -e "${BLUE}When started, open your browser at:${NC}"
+    echo "  http://localhost:$PORT"
+    echo
+fi
+
+# Run the script
+"$VENV_PY" "$SCRIPT" "${ARGS[@]}"
 
 # Keep window open if double-clicked
 if [[ -z "${TERM_PROGRAM}" ]]; then
