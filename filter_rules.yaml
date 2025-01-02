@@ -1,0 +1,36 @@
+# Filter rules for market monitor
+
+# Currency codes to ignore (exact match)
+ignored_currencies:
+  - USD
+  - EUR
+  - GBP
+  - JPY
+  - AUD
+  - CAD
+  - CHF
+  - CNY
+  - NZD
+  - KRW
+  - THB
+  - SGD
+  - RUB
+  - BRL
+  - ZAR
+  - MYR
+  - IDR
+  - MXN
+  - TRY
+
+# Issuer addresses to ignore
+ignored_issuers:
+  - rDLx56UDgChRy3HqwkFSDBpX4hL6sEgmtx  # Known fiat currency issuer
+  - r9PfV3sQpKLWxccdg3HL2FXKxGW2orAcLE  # Another fiat issuer
+
+# Maximum age for new tokens (in hours)
+max_token_age_hours: 12
+
+# Optional: Regex patterns for currencies to ignore
+ignored_currency_patterns:
+  - '^[A-Z]{3}$'  # Three letter currency codes
+  - '^USD[A-Z]$'  # USD variations

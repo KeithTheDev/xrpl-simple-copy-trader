@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import Dict, Set, Union
 from decimal import Decimal
+from dataclasses import dataclass
 
 from xrpl.models.requests import Subscribe
 from xrpl.wallet import Wallet
@@ -12,9 +13,11 @@ from xrpl.wallet import Wallet
 from utils.xrpl_base_monitor import XRPLBaseMonitor
 from utils.xrpl_transaction_parser import XRPLTransactionParser, TrustSetInfo, PaymentInfo
 from utils.xrpl_logger import XRPLLogger
+from utils.token_analyzer import TokenAnalyzer
 from config import Config
 from utils.db_handler import XRPLDatabase
 
+@dataclass
 class TokenInfo:
     """Class to track token information"""
     def __init__(self, currency: str, issuer: str):
@@ -25,8 +28,11 @@ class TokenInfo:
         self.total_volume = Decimal('0')
         self.trades = 0
         self.first_trade: datetime = None
+        self._is_filtered: bool = False  # Flag for filtered status
 
 class XRPLMarketMonitor(XRPLBaseMonitor):
+    """XRPL Market Monitor for analyzing token patterns and trends"""
+    
     def __init__(self, config: Config, debug: bool = False):
         # Initialize base monitor
         super().__init__(
@@ -124,13 +130,34 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         else:
             # New trust line
             if token_key not in self.tokens:
+                # Check if token is already known to be too old
+                if self.db.is_token_too_old(trust_info.currency, trust_info.issuer):
+                    # Skip tracking if token is known to be too old
+                    token = TokenInfo(trust_info.currency, trust_info.issuer)
+                    token._is_filtered = True
+                    self.tokens[token_key] = token
+                    self.logger.debug(
+                        f"⌛ Token {trust_info.currency}:{trust_info.issuer} skipped: previously marked as too old"
+                    )
+                    return
+                    
+                # New token - mark for analysis and start tracking
+                self.db.mark_token_for_analysis(
+                    trust_info.currency, 
+                    trust_info.issuer,
+                    trust_info.tx_hash
+                )
+                
                 self.tokens[token_key] = TokenInfo(trust_info.currency, trust_info.issuer)
+                self.logger.debug(
+                    f"✨ New token {trust_info.currency}:{trust_info.issuer} marked for age analysis"
+                )
                 self.logger.log_token_discovery(
                     trust_info.currency,
                     trust_info.issuer,
                     trust_info.value
                 )
-            else:
+            elif not self.tokens[token_key]._is_filtered:
                 self.tokens[token_key].trust_lines += 1
                 self._check_hot_token_status(token_key)
 
@@ -138,7 +165,7 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         """Handle parsed Payment information"""
         token_key = self.tx_parser.get_token_key(payment_info.currency, payment_info.issuer)
         
-        if token_key not in self.tokens:
+        if token_key not in self.tokens or self.tokens[token_key]._is_filtered:
             return
 
         # Store in analytics database
@@ -207,6 +234,7 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                     'trades': v.trades,
                     'first_trade': v.first_trade.isoformat() if v.first_trade else None
                 } for k, v in self.tokens.items()
+                if not v._is_filtered  # Only save non-filtered tokens
             },
             'hot_tokens': list(self.hot_tokens)
         }
@@ -229,10 +257,15 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
 
     def _print_status_update(self) -> None:
         """Print current monitoring status"""
+        # Count non-filtered tokens
+        active_tokens = sum(1 for token in self.tokens.values() if not token._is_filtered)
+        
         token_details = []
         if self.hot_tokens:
             for token_key in self.hot_tokens:
                 token = self.tokens[token_key]
+                if token._is_filtered:
+                    continue
                 details = [
                     f"\n🔥 {token.currency}",
                     f"   Issuer: {token.issuer}",
@@ -246,12 +279,13 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                 token_details.extend(details)
 
         self.logger.log_status_update(
-            total_tokens=len(self.tokens),
+            total_tokens=active_tokens,
             hot_tokens=len(self.hot_tokens),
             token_details=token_details
         )
 
 async def main():
+    """Main entry point"""
     import argparse
     parser = argparse.ArgumentParser(description='XRPL Token Market Monitor')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
@@ -262,12 +296,24 @@ async def main():
         return
 
     monitor = XRPLMarketMonitor(config, debug=args.debug)
+    analyzer = TokenAnalyzer(
+        websocket_url=config.get('network', 'websocket_url'),
+        db_handler=XRPLDatabase(),
+        analysis_interval=300,  # 5 minutes
+        batch_size=10,
+        max_token_age_hours=12
+    )
     
     try:
-        await monitor.monitor()
+        # Start both monitor and analyzer tasks
+        await asyncio.gather(
+            monitor.monitor(),
+            analyzer.start()
+        )
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
         await monitor.stop()
+        await analyzer.stop()
     except Exception as e:
         print(f"Fatal error: {str(e)}")
 
