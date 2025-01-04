@@ -1,5 +1,3 @@
-# market_monitor.py
-
 import asyncio
 import json
 from datetime import datetime
@@ -9,11 +7,11 @@ from dataclasses import dataclass
 
 from xrpl.models.requests import Subscribe
 from xrpl.wallet import Wallet
+from xrpl.models.requests import BookOffers
 
 from utils.xrpl_base_monitor import XRPLBaseMonitor
 from utils.xrpl_transaction_parser import XRPLTransactionParser, TrustSetInfo, PaymentInfo
 from utils.xrpl_logger import XRPLLogger
-from utils.token_analyzer import TokenAnalyzer
 from config import Config
 from utils.db_handler import XRPLDatabase
 
@@ -28,13 +26,15 @@ class TokenInfo:
         self.total_volume = Decimal('0')
         self.trades = 0
         self.first_trade: datetime = None
-        self._is_filtered: bool = False  # Flag for filtered status
+        self._is_filtered: bool = False
+        self.current_price: Decimal = Decimal('0')
+        self.max_price: Decimal = Decimal('0')
+        self.max_price_time: datetime = None
 
 class XRPLMarketMonitor(XRPLBaseMonitor):
     """XRPL Market Monitor for analyzing token patterns and trends"""
     
     def __init__(self, config: Config, debug: bool = False):
-        # Initialize base monitor
         super().__init__(
             websocket_url=config.get('network', 'websocket_url'),
             logger_name='XRPLMarketMonitor',
@@ -42,12 +42,10 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
             reconnect_delay=int(config.get('network', 'reconnect_delay_seconds', fallback=5))
         )
         
-        # Initialize components
         self.config = config
         self.db = XRPLDatabase()
         self.tx_parser = XRPLTransactionParser()
         
-        # Set up logger
         log_config = config.get('logging', default={})
         self.logger = XRPLLogger(
             name='XRPLMarketMonitor',
@@ -56,13 +54,11 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
             debug=debug
         )
 
-        # Load configuration
         self.min_trade_volume = float(config.get('monitoring', 'min_trade_volume', fallback=1000))
         self.min_trust_lines = int(config.get('monitoring', 'min_trust_lines', fallback=5))
         self.data_file = config.get('monitoring', 'data_file', fallback='token_data.json')
         self.save_interval = int(config.get('monitoring', 'save_interval_minutes', fallback=5)) * 60
 
-        # State tracking
         self.tokens: Dict[str, TokenInfo] = {}
         self.hot_tokens: Set[str] = set()
         self.last_save = datetime.now()
@@ -74,13 +70,11 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         await client.send(subscribe_request)
         self.logger.success(f"Subscribed to XRPL transaction stream")
         
-        # Start status updates
         self.status_task = asyncio.create_task(self._periodic_status_update())
 
     async def _handle_message(self, client, message: Union[str, Dict]) -> None:
         """Process incoming messages using the transaction parser"""
         try:
-            # Convert message to dict if it's a string
             if isinstance(message, str):
                 data = json.loads(message)
             else:
@@ -91,9 +85,8 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
             if tx_type == "TrustSet" and isinstance(parsed_info, TrustSetInfo):
                 await self.handle_trust_set(parsed_info)
             elif tx_type == "Payment" and isinstance(parsed_info, PaymentInfo):
-                await self.handle_payment(parsed_info)
+                await self.handle_payment(client, parsed_info)
             
-            # Check if it's time to save data
             now = datetime.now()
             if (now - self.last_save).total_seconds() >= self.save_interval:
                 self._save_data()
@@ -108,8 +101,7 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         """Handle parsed TrustSet information"""
         token_key = self.tx_parser.get_token_key(trust_info.currency, trust_info.issuer)
         
-        # Store in analytics database
-        self.db.analytics_add_trust_line(
+        self.db.add_trustline(
             currency=trust_info.currency,
             issuer=trust_info.issuer,
             wallet=trust_info.wallet,
@@ -118,7 +110,6 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         )
         
         if trust_info.value == "0":
-            # Trust line removal
             if token_key in self.tokens:
                 self.tokens[token_key].trust_lines = max(0, self.tokens[token_key].trust_lines - 1)
                 self.logger.log_trust_line_update(
@@ -128,11 +119,8 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                     removed=True
                 )
         else:
-            # New trust line
             if token_key not in self.tokens:
-                # Check if token is already known to be too old
                 if self.db.is_token_too_old(trust_info.currency, trust_info.issuer):
-                    # Skip tracking if token is known to be too old
                     token = TokenInfo(trust_info.currency, trust_info.issuer)
                     token._is_filtered = True
                     self.tokens[token_key] = token
@@ -141,7 +129,6 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                     )
                     return
                     
-                # New token - mark for analysis and start tracking
                 self.db.mark_token_for_analysis(
                     trust_info.currency, 
                     trust_info.issuer,
@@ -161,51 +148,98 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                 self.tokens[token_key].trust_lines += 1
                 self._check_hot_token_status(token_key)
 
-    async def handle_payment(self, payment_info: PaymentInfo) -> None:
-        """Handle parsed Payment information"""
+    async def handle_payment(self, client, payment_info: PaymentInfo) -> None:
+        """Handle parsed Payment information with price tracking"""
         token_key = self.tx_parser.get_token_key(payment_info.currency, payment_info.issuer)
         
         if token_key not in self.tokens or self.tokens[token_key]._is_filtered:
             return
 
-        # Store in analytics database
-        self.db.analytics_add_trade(
-            currency=payment_info.currency,
-            issuer=payment_info.issuer,
-            amount=str(payment_info.delivered_amount),
-            price_xrp="0",  # Will need price monitoring
-            buyer=payment_info.buyer,
-            seller=payment_info.seller,
-            tx_hash=payment_info.tx_hash
-        )
+        # Get current price
+        current_price = await self._get_token_price(client, payment_info.currency, payment_info.issuer)
+        
+        if current_price:
+            self.db.add_trade(
+                currency=payment_info.currency,
+                issuer=payment_info.issuer,
+                buyer=payment_info.buyer,
+                seller=payment_info.seller,
+                amount=payment_info.delivered_amount,
+                price_xrp=current_price,
+                tx_hash=payment_info.tx_hash
+            )
 
-        # Update token tracking
-        token = self.tokens[token_key]
-        if token.first_trade is None:
-            token.first_trade = payment_info.timestamp
-            self.logger.log_trade(
-                token.currency,
-                token.issuer,
-                str(payment_info.value),
-                str(token.total_volume),
-                token.trades,
-                token.trust_lines,
-                is_hot=False
+            # Update token info
+            token = self.tokens[token_key]
+            token.current_price = current_price
+            
+            if current_price > token.max_price:
+                token.max_price = current_price
+                token.max_price_time = datetime.now()
+                
+                self.db.update_token_max_price(
+                    currency=payment_info.currency,
+                    issuer=payment_info.issuer,
+                    price=current_price,
+                    timestamp=datetime.now()
+                )
+
+            if token.first_trade is None:
+                token.first_trade = payment_info.timestamp
+                self.logger.log_trade(
+                    token.currency,
+                    token.issuer,
+                    str(payment_info.value),
+                    str(token.total_volume),
+                    token.trades,
+                    token.trust_lines,
+                    is_hot=False,
+                    price_xrp=str(current_price)
+                )
+            
+            token.total_volume += payment_info.value
+            token.trades += 1
+            
+            if token_key in self.hot_tokens:
+                self.logger.log_trade(
+                    token.currency,
+                    token.issuer,
+                    str(payment_info.value),
+                    str(token.total_volume),
+                    token.trades,
+                    token.trust_lines,
+                    is_hot=True,
+                    price_xrp=str(current_price)
+                )
+
+    async def _get_token_price(self, client, currency: str, issuer: str) -> Decimal:
+        """Get current token price from the DEX"""
+        try:
+            request = BookOffers(
+                taker_gets={"currency": "XRP"},
+                taker_pays={
+                    "currency": currency,
+                    "issuer": issuer
+                }
             )
-        
-        token.total_volume += payment_info.value
-        token.trades += 1
-        
-        if token_key in self.hot_tokens:
-            self.logger.log_trade(
-                token.currency,
-                token.issuer,
-                str(payment_info.value),
-                str(token.total_volume),
-                token.trades,
-                token.trust_lines,
-                is_hot=True
-            )
+            
+            response = await client.request(request)
+            if not response.is_successful():
+                return Decimal('0')
+
+            offers = response.result.get('offers', [])
+            if not offers:
+                return Decimal('0')
+
+            best_offer = offers[0]
+            xrp_amount = Decimal(str(best_offer['TakerGets'])) / Decimal('1000000')
+            token_amount = Decimal(str(best_offer['TakerPays']['value']))
+            
+            return xrp_amount / token_amount
+
+        except Exception as e:
+            self.logger.error(f"Error getting price for {currency}: {e}")
+            return Decimal('0')
 
     def _check_hot_token_status(self, token_key: str) -> None:
         """Check if a token has reached hot status"""
@@ -232,9 +266,12 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                     'trust_lines': v.trust_lines,
                     'total_volume': str(v.total_volume),
                     'trades': v.trades,
-                    'first_trade': v.first_trade.isoformat() if v.first_trade else None
+                    'first_trade': v.first_trade.isoformat() if v.first_trade else None,
+                    'current_price': str(v.current_price),
+                    'max_price': str(v.max_price),
+                    'max_price_time': v.max_price_time.isoformat() if v.max_price_time else None
                 } for k, v in self.tokens.items()
-                if not v._is_filtered  # Only save non-filtered tokens
+                if not v._is_filtered
             },
             'hot_tokens': list(self.hot_tokens)
         }
@@ -250,17 +287,16 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
         """Print periodic status updates"""
         try:
             while self.is_running:
-                await asyncio.sleep(300)  # 5 minutes
+                await asyncio.sleep(300)
                 self._print_status_update()
         except asyncio.CancelledError:
             pass
 
     def _print_status_update(self) -> None:
         """Print current monitoring status"""
-        # Count non-filtered tokens
         active_tokens = sum(1 for token in self.tokens.values() if not token._is_filtered)
-        
         token_details = []
+
         if self.hot_tokens:
             for token_key in self.hot_tokens:
                 token = self.tokens[token_key]
@@ -272,7 +308,8 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                     f"   Trust lines: {token.trust_lines}",
                     f"   Age: {datetime.now() - token.first_seen}",
                     f"   Trade volume: {token.total_volume}",
-                    f"   Number of trades: {token.trades}"
+                    f"   Current price: {token.current_price} XRP",
+                    f"   All-time high: {token.max_price} XRP"
                 ]
                 if token.first_trade:
                     details.append(f"   Time to first trade: {token.first_trade - token.first_seen}")
@@ -283,39 +320,3 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
             hot_tokens=len(self.hot_tokens),
             token_details=token_details
         )
-
-async def main():
-    """Main entry point"""
-    import argparse
-    parser = argparse.ArgumentParser(description='XRPL Token Market Monitor')
-    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
-    args = parser.parse_args()
-
-    config = Config()
-    if not config.validate():
-        return
-
-    monitor = XRPLMarketMonitor(config, debug=args.debug)
-    analyzer = TokenAnalyzer(
-        websocket_url=config.get('network', 'websocket_url'),
-        db_handler=XRPLDatabase(),
-        analysis_interval=300,  # 5 minutes
-        batch_size=10,
-        max_token_age_hours=12
-    )
-    
-    try:
-        # Start both monitor and analyzer tasks
-        await asyncio.gather(
-            monitor.monitor(),
-            analyzer.start()
-        )
-    except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
-        await monitor.stop()
-        await analyzer.stop()
-    except Exception as e:
-        print(f"Fatal error: {str(e)}")
-
-if __name__ == "__main__":
-    asyncio.run(main())

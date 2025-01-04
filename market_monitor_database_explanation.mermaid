@@ -1,0 +1,46 @@
+flowchart TD
+    subgraph XRPL["XRPL Network"]
+        TrustSet["New TrustSet Events"]
+        Trades["Trade Events"]
+        Orders["DEX Orders"]
+    end
+
+    subgraph DataCollection["Data Collection"]
+        MarketMonitor["Market Monitor\n- Watches new trustlines\n- Tracks early adopters"]
+        PriceMonitor["Price Monitor\n- Tracks price changes\n- Records ATH prices"]
+    end
+
+    subgraph Database["MongoDB Collections"]
+        token_analysis["token_analysis\n- Basic token info\n- Creation date\n- Status (pending/active/old)"]
+        trustlines["trustlines\n- Who created trustline\n- When (timestamp)\n- Early adopter?"]
+        purchases["purchases\n- Who bought/sold\n- At what price\n- ROI calculation"]
+        prices["token_prices\n- Price history\n- ATH tracking"]
+        wallets["wallet_analysis\n- Success rate\n- Early adoption rate\n- Alpha score"]
+    end
+
+    subgraph Analysis["Analysis & Output"]
+        WalletScorer["Wallet Scorer\n- Calculates success rates\n- Identifies pattern traders"]
+        AlphaWallets["alpha_wallets.txt\nTop wallets scored 7-10"]
+    end
+
+    TrustSet --> MarketMonitor
+    Trades --> MarketMonitor
+    Orders --> PriceMonitor
+    
+    MarketMonitor --> token_analysis
+    MarketMonitor --> trustlines
+    MarketMonitor --> purchases
+    
+    PriceMonitor --> prices
+    
+    token_analysis --> WalletScorer
+    trustlines --> WalletScorer
+    purchases --> WalletScorer
+    prices --> WalletScorer
+    
+    WalletScorer --> wallets
+    WalletScorer --> AlphaWallets
+
+    style XRPL fill:#f9f,stroke:#333
+    style Database fill:#bbf,stroke:#333
+    style Analysis fill:#bfb,stroke:#333
