@@ -1,6 +1,6 @@
 #!/bin/zsh
 
-# scripts/run_all.sh
+# scripts/run_alpha_wallet_finder.sh
 cd "$(dirname "$0")/.."
 PROJECT_ROOT=$(pwd)
 
@@ -21,8 +21,8 @@ fi
 # Start all components in separate terminals
 osascript -e '
 tell application "Terminal"
-    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh scripts/run_market_monitor.sh"
-    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh scripts/run_price_monitor.sh"
-    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh scripts/run_wallet_scorer.sh"
+    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh alpha_wallet_finder_scripts/run_market_monitor.sh"
+    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh alpha_wallet_finder_scripts/run_price_monitor.sh"
+    do script "cd '${PROJECT_ROOT}'; source venv/bin/activate; zsh alpha_wallet_finder_scripts/run_wallet_scorer.sh"
 end tell
 '

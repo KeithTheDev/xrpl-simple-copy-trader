@@ -93,36 +93,56 @@ class XRPLDatabase:
             self.logger.error(f"Error adding trustline: {e}")
             return False
 
-    def add_trade(self, currency: str, issuer: str, buyer: str, 
-                seller: str, amount: Decimal, price_xrp: Decimal,
-                tx_hash: str) -> bool:
+    def add_trade(
+        self,
+        currency: str,
+        issuer: str,
+        buyer: str,
+        seller: str,
+        amount: Decimal,
+        price_xrp: Decimal,
+        tx_hash: str
+    ) -> bool:
         """
         Add a new trade to the database and update related collections.
-        
+
         Args:
-            currency: Token currency code
-            issuer: Token issuer address
-            buyer: Buyer's wallet address
-            seller: Seller's wallet address
-            amount: Trade amount
-            price_xrp: Price in XRP
-            tx_hash: Transaction hash
+            currency (str): Token currency code.
+            issuer (str): Token issuer address.
+            buyer (str): Buyer's wallet address.
+            seller (str): Seller's wallet address.
+            amount (Decimal): Trade amount.
+            price_xrp (Decimal): Price in XRP.
+            tx_hash (str): Transaction hash.
 
         Returns:
-            bool: True if trade was added successfully
+            bool: True if trade was added successfully, False otherwise.
         """
         try:
-            # Validate addresses to prevent null values in wallet_analysis
-            if not buyer or not seller or buyer == "null" or seller == "null":
-                self.logger.warning(f"Invalid address detected: buyer={buyer}, seller={seller}")
+            # Clean and validate buyer and seller addresses
+            def clean_address(address: Optional[str]) -> Optional[str]:
+                if address and isinstance(address, str):
+                    cleaned = address.strip().lower()
+                    if cleaned != "null":
+                        return cleaned
+                return None
+
+            buyer_clean = clean_address(buyer)
+            seller_clean = clean_address(seller)
+
+            # Validate addresses to prevent null or invalid entries
+            if not buyer_clean or not seller_clean:
+                self.logger.warning(
+                    f"Invalid address detected: buyer='{buyer}', seller='{seller}'"
+                )
                 return False
 
             # Create trade record
             trade = {
                 "currency": currency,
                 "issuer": issuer,
-                "buyer": buyer,
-                "seller": seller,
+                "buyer": buyer_clean,
+                "seller": seller_clean,
                 "amount": Decimal128(amount),
                 "price_xrp": Decimal128(price_xrp),
                 "timestamp": datetime.utcnow(),
@@ -131,30 +151,45 @@ class XRPLDatabase:
 
             # Add trade to purchases collection
             self.db.purchases.insert_one(trade)
-            
+
             # Update token price tracking
             self.update_token_prices(currency, issuer, price_xrp)
-            
+
             # Update token status to active since there's trading activity
             self.db.token_analysis.update_one(
                 {"currency": currency, "issuer": issuer},
                 {
                     "$set": {
                         "status": "active",
-                        "last_updated": datetime.now(),
-                        "last_trade": datetime.now()
+                        "last_updated": datetime.utcnow(),
+                        "last_trade": datetime.utcnow()
                     }
                 }
             )
 
-            # Update wallet activity timestamps
+            # Current timestamp for wallet updates
             now = datetime.utcnow()
-            self.db.wallet_analysis.update_many(
-                {"address": {"$in": [buyer, seller]}},
-                {"$max": {"last_active": now}},
+
+            # Update wallet activity for buyer
+            self.db.wallet_analysis.update_one(
+                {"address": buyer_clean},
+                {
+                    "$min": {"first_seen": now},
+                    "$max": {"last_active": now}
+                },
                 upsert=True
             )
-            
+
+            # Update wallet activity for seller
+            self.db.wallet_analysis.update_one(
+                {"address": seller_clean},
+                {
+                    "$min": {"first_seen": now},
+                    "$max": {"last_active": now}
+                },
+                upsert=True
+            )
+
             return True
 
         except Exception as e:

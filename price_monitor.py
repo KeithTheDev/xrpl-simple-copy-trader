@@ -13,14 +13,16 @@ class PriceMonitor:
         self,
         websocket_url: str,
         db_handler: XRPLDatabase,
-        poll_interval: int = 10,
+        poll_interval: int = 120, # Poll interval in seconds. Too low => will be rate limited.
         batch_size: int = 10,
+        wait_between_query: int = 5, # Number of seconds to wait between every price query. Too low => will be rate limited
         min_price_change: Decimal = Decimal('0.05')
     ):
         self.websocket_url = websocket_url
         self.db = db_handler
         self.poll_interval = poll_interval
         self.batch_size = batch_size
+        self.wait_between_query = wait_between_query
         self.min_price_change = min_price_change
         
         # Set up logger
@@ -72,6 +74,9 @@ class PriceMonitor:
                         token['issuer']
                     )
                     
+                    # Wait a number of seconds between every call, since we want to avoid being rate limited.
+                    await asyncio.sleep(self.wait_between_query) 
+
                     if current_price is None:
                         self.logger.debug(f"No price found for {token['currency']}")
                         continue
