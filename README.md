@@ -15,7 +15,7 @@ To get this running at all:
 - Create your own config.local.yaml. Look at example.config.local.yaml and create your own config.local.yaml.
 - To start the Copy trader on Mac: zsh start_copy_trader_on_mac.sh
 - To start the Copy trader on Windows: start_copytrader_on_windows.cmd in Powershell
-- To user the Copy trader: http://localhost:8000
+- To use the Copy trader: http://localhost:8000
 - To start the Alpha wallet finder (only Mac compatible): zsh alpha_wallet_finder_scripts/run_alpha_wallet_finder.sh
 
 ## Old README, not too interesting
