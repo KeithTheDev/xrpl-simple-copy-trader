@@ -149,7 +149,6 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
                 self._check_hot_token_status(token_key)
 
     async def handle_payment(self, client, payment_info: PaymentInfo) -> None:
-        """Handle parsed Payment information with price tracking"""
         token_key = self.tx_parser.get_token_key(payment_info.currency, payment_info.issuer)
         
         if token_key not in self.tokens or self.tokens[token_key]._is_filtered:
@@ -173,17 +172,6 @@ class XRPLMarketMonitor(XRPLBaseMonitor):
             token = self.tokens[token_key]
             token.current_price = current_price
             
-            if current_price > token.max_price:
-                token.max_price = current_price
-                token.max_price_time = datetime.now()
-                
-                self.db.update_token_max_price(
-                    currency=payment_info.currency,
-                    issuer=payment_info.issuer,
-                    price=current_price,
-                    timestamp=datetime.now()
-                )
-
             if token.first_trade is None:
                 token.first_trade = payment_info.timestamp
                 self.logger.log_trade(

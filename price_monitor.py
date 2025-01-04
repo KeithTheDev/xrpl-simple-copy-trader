@@ -13,7 +13,7 @@ class PriceMonitor:
         self,
         websocket_url: str,
         db_handler: XRPLDatabase,
-        poll_interval: int = 300,
+        poll_interval: int = 10,
         batch_size: int = 10,
         min_price_change: Decimal = Decimal('0.05')
     ):

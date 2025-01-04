@@ -19,8 +19,11 @@ class TokenAnalysis:
     creator_address: Optional[str]
     is_frozen: bool
     last_activity: Optional[datetime]
-    tracking_url: str
-    analysis_timestamp: datetime = datetime.now()
+    current_price: Optional[Decimal]
+    first_price: Optional[Decimal]
+    first_price_time: Optional[datetime]
+    max_price: Optional[Decimal]
+    max_price_time: Optional[datetime]
 
 class TokenAnalyzer:
     def __init__(
@@ -37,7 +40,6 @@ class TokenAnalyzer:
         self.batch_size = batch_size
         self.max_token_age_hours = max_token_age_hours
         
-        # Set up logger
         self.logger = logging.getLogger('TokenAnalyzer')
         self.logger.setLevel(logging.DEBUG)
         console_handler = logging.StreamHandler()
@@ -49,7 +51,6 @@ class TokenAnalyzer:
         self.is_running = False
 
     async def start(self):
-        """Start the analysis loop"""
         self.is_running = True
         self.logger.info("🚀 Starting token analyzer")
 
@@ -65,12 +66,10 @@ class TokenAnalyzer:
                     await asyncio.sleep(10)
 
     async def stop(self):
-        """Stop the analyzer gracefully"""
         self.logger.info("🛑 Stopping analyzer")
         self.is_running = False
 
     async def _analysis_loop(self, client: AsyncWebsocketClient):
-        """Main analysis loop"""
         cutoff_time = datetime.now() - timedelta(hours=24)
         
         try:
@@ -106,20 +105,11 @@ class TokenAnalyzer:
                     continue
 
                 try:
-                    tracking_url = f"https://xmagnetic.org/tokens/{currency}+{issuer}?network=mainnet"
-                    self.logger.info(f"🔗 Tracking URL: {tracking_url}")
-                    
-                    self.db.update_token_analysis(
-                        currency=analysis_res.currency,
-                        issuer=analysis_res.issuer,
-                        creation_date=analysis_res.creation_date,
-                        total_supply=analysis_res.total_supply,
-                        unique_holders=analysis_res.unique_holders,
-                        creator_address=analysis_res.creator_address,
-                        is_frozen=analysis_res.is_frozen,
-                        last_activity=analysis_res.last_activity
-                    )
-                    self.logger.info(f"✅ Analysis stored for {currency}:{issuer}")
+                    current_price = await self._get_token_price(client, currency, issuer)
+                    if current_price:
+                        self.db.update_token_prices(currency, issuer, current_price)
+                        self.logger.info(f"💰 Updated price for {currency}: {current_price} XRP")
+
                 except Exception as e:
                     self.logger.error(f"❌ Failed to store analysis for {currency}:{issuer}: {e}")
 
@@ -147,11 +137,7 @@ class TokenAnalyzer:
             return None
 
         self.logger.debug(f"📥 Fetching transactions for {issuer}")
-        
-        request = AccountTx(
-            account=issuer,
-            limit=20
-        )
+        request = AccountTx(account=issuer, limit=20)
         
         try:
             response = await client.request(request)
@@ -169,8 +155,6 @@ class TokenAnalyzer:
 
         tx_list = response.result.get('transactions', [])
         self.logger.debug(f"📝 Retrieved {len(tx_list)} transactions")
-
-        tracking_url = f"https://xmagnetic.org/tokens/{currency}+{issuer}?network=mainnet"
         
         analysis = TokenAnalysis(
             currency=currency,
@@ -181,8 +165,11 @@ class TokenAnalyzer:
             creator_address=None,
             is_frozen=False,
             last_activity=None,
-            tracking_url=tracking_url,
-            analysis_timestamp=datetime.now()
+            current_price=None,
+            first_price=None,
+            first_price_time=None,
+            max_price=None,
+            max_price_time=None
         )
 
         for tx_wrapper in tx_list:
@@ -191,8 +178,38 @@ class TokenAnalyzer:
 
         return analysis
 
+    async def _get_token_price(self, client, currency: str, issuer: str) -> Optional[Decimal]:
+        """Get current DEX price for token in XRP"""
+        from xrpl.models.requests import BookOffers
+        
+        try:
+            request = BookOffers(
+                taker_gets={"currency": "XRP"},
+                taker_pays={
+                    "currency": currency,
+                    "issuer": issuer
+                }
+            )
+            
+            response = await client.request(request)
+            if not response.is_successful():
+                return None
+
+            offers = response.result.get('offers', [])
+            if not offers:
+                return None
+
+            best_offer = offers[0]
+            xrp_amount = Decimal(str(best_offer['TakerGets'])) / Decimal('1000000')
+            token_amount = Decimal(str(best_offer['TakerPays']['value']))
+            
+            return xrp_amount / token_amount
+
+        except Exception as e:
+            self.logger.error(f"Error getting price for {currency}: {e}")
+            return None
+
     async def _get_token_age(self, client: AsyncWebsocketClient, tx_hash: str) -> Optional[float]:
-        """Calculate token age in hours"""
         try:
             request = Tx(transaction=tx_hash)
             response = await client.request(request)
@@ -221,7 +238,6 @@ class TokenAnalyzer:
             return None
 
     async def _update_analysis_from_tx(self, analysis: TokenAnalysis, tx: Dict):
-        """Update analysis based on transaction data"""
         try:
             tx_type = tx.get('TransactionType')
             tx_date = self._get_tx_datetime(tx)
@@ -246,7 +262,6 @@ class TokenAnalyzer:
 
     @staticmethod
     def _get_tx_datetime(tx: Dict) -> Optional[datetime]:
-        """Convert XRPL timestamp to datetime"""
         try:
             if 'date' in tx:
                 ripple_epoch = datetime(2000, 1, 1)

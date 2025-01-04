@@ -1,4 +1,4 @@
-# db_handler.py 
+# db_handler.py
 from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 from decimal import Decimal
@@ -14,7 +14,6 @@ class XRPLDatabase:
         self._create_indexes()
 
     def _create_indexes(self):
-        # Core indexes
         self.db.trustlines.create_index([
             ("currency", ASCENDING), 
             ("issuer", ASCENDING)
@@ -30,18 +29,6 @@ class XRPLDatabase:
         self.db.purchases.create_index([("buyer", ASCENDING)])
         self.db.purchases.create_index([("seller", ASCENDING)])
 
-        # Price tracking indexes
-        self.db.token_prices.create_index([
-            ("currency", ASCENDING),
-            ("issuer", ASCENDING),
-            ("timestamp", DESCENDING)
-        ])
-        self.db.token_max_prices.create_index([
-            ("currency", ASCENDING),
-            ("issuer", ASCENDING)
-        ], unique=True)
-
-        # Analytics indexes
         self.db.token_analysis.create_index([
             ("currency", ASCENDING), 
             ("issuer", ASCENDING), 
@@ -50,81 +37,13 @@ class XRPLDatabase:
         self.db.token_analysis.create_index([("status", ASCENDING)])
         self.db.token_analysis.create_index([("creation_date", ASCENDING)])
         self.db.token_analysis.create_index([("last_activity", DESCENDING)])
+        self.db.token_analysis.create_index([("first_price_time", ASCENDING)])
+        self.db.token_analysis.create_index([("current_price", DESCENDING)])
 
-        # Wallet analytics
         self.db.wallet_analysis.create_index([("address", ASCENDING)], unique=True)
         self.db.wallet_analysis.create_index([("alpha_score", DESCENDING)])
         self.db.wallet_analysis.create_index([("last_active", DESCENDING)])
 
-    # Token price methods
-    def update_token_price(self, currency: str, issuer: str, price: Decimal, timestamp: datetime) -> bool:
-        try:
-            price_data = {
-                "currency": currency,
-                "issuer": issuer,
-                "price": Decimal128(price),
-                "timestamp": timestamp
-            }
-            self.db.token_prices.insert_one(price_data)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error updating token price: {e}")
-            return False
-
-    def get_token_max_price(self, currency: str, issuer: str) -> Optional[Decimal]:
-        try:
-            result = self.db.token_max_prices.find_one({
-                "currency": currency,
-                "issuer": issuer
-            })
-            return Decimal(str(result["price"])) if result and "price" in result else None
-        except Exception as e:
-            self.logger.error(f"Error getting max price: {e}")
-            return None
-
-    def update_token_max_price(self, currency: str, issuer: str, price: Decimal, timestamp: datetime) -> bool:
-        try:
-            self.db.token_max_prices.update_one(
-                {"currency": currency, "issuer": issuer},
-                {
-                    "$set": {
-                        "price": Decimal128(price),
-                        "timestamp": timestamp
-                    }
-                },
-                upsert=True
-            )
-            return True
-        except Exception as e:
-            self.logger.error(f"Error updating max price: {e}")
-            return False
-
-    def get_price_history(self, currency: str, issuer: str, 
-                       start_time: Optional[datetime] = None,
-                       end_time: Optional[datetime] = None,
-                       limit: int = 1000) -> List[Dict]:
-        try:
-            query = {"currency": currency, "issuer": issuer}
-            if start_time or end_time:
-                time_query = {}
-                if start_time:
-                    time_query["$gte"] = start_time
-                if end_time:
-                    time_query["$lte"] = end_time
-                if time_query:
-                    query["timestamp"] = time_query
-
-            prices = list(self.db.token_prices.find(
-                query,
-                {"price": 1, "timestamp": 1, "_id": 0}
-            ).sort("timestamp", ASCENDING).limit(limit))
-
-            return [{"price": Decimal(str(p["price"])), "timestamp": p["timestamp"]} for p in prices]
-        except Exception as e:
-            self.logger.error(f"Error getting price history: {e}")
-            return []
-
-    # Token tracking methods
     def get_active_tokens(self, min_age_hours: int = 0, 
                        max_age_hours: Optional[int] = None) -> List[Dict]:
         query = {"status": "active"}
@@ -161,7 +80,6 @@ class XRPLDatabase:
             }
             self.db.trustlines.insert_one(trustline)
             
-            # Update wallet's first seen time if new
             self.db.wallet_analysis.update_one(
                 {"address": wallet},
                 {
@@ -174,11 +92,32 @@ class XRPLDatabase:
         except Exception as e:
             self.logger.error(f"Error adding trustline: {e}")
             return False
-        
+
     def add_trade(self, currency: str, issuer: str, buyer: str, 
                 seller: str, amount: Decimal, price_xrp: Decimal,
                 tx_hash: str) -> bool:
+        """
+        Add a new trade to the database and update related collections.
+        
+        Args:
+            currency: Token currency code
+            issuer: Token issuer address
+            buyer: Buyer's wallet address
+            seller: Seller's wallet address
+            amount: Trade amount
+            price_xrp: Price in XRP
+            tx_hash: Transaction hash
+
+        Returns:
+            bool: True if trade was added successfully
+        """
         try:
+            # Validate addresses to prevent null values in wallet_analysis
+            if not buyer or not seller or buyer == "null" or seller == "null":
+                self.logger.warning(f"Invalid address detected: buyer={buyer}, seller={seller}")
+                return False
+
+            # Create trade record
             trade = {
                 "currency": currency,
                 "issuer": issuer,
@@ -189,20 +128,39 @@ class XRPLDatabase:
                 "timestamp": datetime.utcnow(),
                 "tx_hash": tx_hash
             }
+
+            # Add trade to purchases collection
             self.db.purchases.insert_one(trade)
             
-            # Update wallet activity times
+            # Update token price tracking
+            self.update_token_prices(currency, issuer, price_xrp)
+            
+            # Update token status to active since there's trading activity
+            self.db.token_analysis.update_one(
+                {"currency": currency, "issuer": issuer},
+                {
+                    "$set": {
+                        "status": "active",
+                        "last_updated": datetime.now(),
+                        "last_trade": datetime.now()
+                    }
+                }
+            )
+
+            # Update wallet activity timestamps
             now = datetime.utcnow()
             self.db.wallet_analysis.update_many(
                 {"address": {"$in": [buyer, seller]}},
                 {"$max": {"last_active": now}},
                 upsert=True
             )
+            
             return True
+
         except Exception as e:
             self.logger.error(f"Error adding trade: {e}")
             return False
-
+        
     def mark_token_for_analysis(self, currency: str, issuer: str, 
                             tx_hash: str) -> bool:
         try:
@@ -212,7 +170,8 @@ class XRPLDatabase:
                 "status": "pending",
                 "first_seen_tx": tx_hash,
                 "timestamp": datetime.now(),
-                "last_updated": datetime.now()
+                "last_updated": datetime.now(),
+                "tracking_url": f"https://xmagnetic.org/tokens/{currency}+{issuer}?network=mainnet"
             }
             result = self.db.token_analysis.update_one(
                 {"currency": currency, "issuer": issuer},
@@ -250,6 +209,38 @@ class XRPLDatabase:
             self.logger.error(f"Error checking if too old: {e}")
             return False
 
+    def update_token_prices(self, currency: str, issuer: str, 
+                        current_price: Decimal) -> bool:
+        try:
+            token = self.db.token_analysis.find_one(
+                {"currency": currency, "issuer": issuer}
+            )
+            
+            update_data = {
+                "current_price": Decimal128(current_price),
+                "last_updated": datetime.now()
+            }
+
+            # Set first price if not exists
+            if not token or "first_price" not in token:
+                update_data["first_price"] = Decimal128(current_price)
+                update_data["first_price_time"] = datetime.now()
+            
+            # Update max price if needed
+            if not token or "max_price" not in token or current_price > Decimal(str(token["max_price"])):
+                update_data["max_price"] = Decimal128(current_price)
+                update_data["max_price_time"] = datetime.now()
+
+            self.db.token_analysis.update_one(
+                {"currency": currency, "issuer": issuer},
+                {"$set": update_data},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating token prices: {e}")
+            return False
+
     def get_unanalyzed_tokens(self, cutoff_time: datetime) -> List[Dict]:
         try:
             pending = list(self.db.token_analysis.find(
@@ -264,7 +255,6 @@ class XRPLDatabase:
                 "currency": 1, "issuer": 1, "first_seen_tx": 1, "_id": 0
             }))
 
-            # Combine and deduplicate
             seen = set()
             unique_tokens = []
             for token in pending + expired:
@@ -277,42 +267,6 @@ class XRPLDatabase:
         except Exception as e:
             self.logger.error(f"Error getting unanalyzed tokens: {e}")
             return []
-
-    def update_token_analysis(self, currency: str, issuer: str,
-                          creation_date: Optional[datetime],
-                          total_supply: Optional[Decimal],
-                          unique_holders: int,
-                          creator_address: Optional[str],
-                          is_frozen: bool,
-                          last_activity: Optional[datetime]) -> bool:
-        try:
-            # Create tracking URL
-            tracking_url = f"https://xmagnetic.org/tokens/{currency}+{issuer}?network=mainnet"
-            
-            analysis = {
-                "currency": currency,
-                "issuer": issuer,
-                "status": "active",
-                "timestamp": datetime.now(),
-                "creation_date": creation_date,
-                "total_supply": Decimal128(total_supply) if total_supply else None,
-                "unique_holders": unique_holders,
-                "creator_address": creator_address,
-                "is_frozen": is_frozen,
-                "last_activity": last_activity,
-                "last_updated": datetime.now(),
-                "tracking_url": tracking_url
-            }
-            
-            self.db.token_analysis.update_one(
-                {"currency": currency, "issuer": issuer},
-                {"$set": analysis},
-                upsert=True
-            )
-            return True
-        except Exception as e:
-            self.logger.error(f"Error updating token analysis: {e}")
-            return False
 
     def get_wallet_trustlines(self, wallet: str, since: Optional[datetime] = None) -> List[Dict]:
         try:
@@ -330,7 +284,7 @@ class XRPLDatabase:
 
     def get_wallet_token_trades(self, wallet: str, currency: str, issuer: str) -> List[Dict]:
         try:
-            return list(self.db.purchases.find(
+            trades = list(self.db.purchases.find(
                 {
                     "$or": [{"buyer": wallet}, {"seller": wallet}],
                     "currency": currency,
@@ -338,6 +292,14 @@ class XRPLDatabase:
                 },
                 {"amount": 1, "price_xrp": 1, "timestamp": 1, "_id": 0}
             ).sort("timestamp", ASCENDING))
+
+            for trade in trades:
+                if isinstance(trade.get('price_xrp'), Decimal128):
+                    trade['price_xrp'] = trade['price_xrp'].to_decimal()
+                if isinstance(trade.get('amount'), Decimal128):
+                    trade['amount'] = trade['amount'].to_decimal()
+            
+            return trades
         except Exception as e:
             self.logger.error(f"Error getting wallet trades: {e}")
             return []
@@ -353,18 +315,28 @@ class XRPLDatabase:
             self.logger.error(f"Error getting trustline count: {e}")
             return 0
 
+    def get_token_trustline_position(self, currency: str, issuer: str, timestamp: datetime) -> int:
+        try:
+            earlier_trustlines = self.db.trustlines.count_documents({
+                "currency": currency,
+                "issuer": issuer,
+                "timestamp": {"$lte": timestamp},
+                "limit": {"$ne": "0"}
+            })
+            return earlier_trustlines + 1
+        except Exception as e:
+            self.logger.error(f"Error getting trustline position: {e}")
+            return float('inf')
+
     def get_active_wallets(self, since: datetime) -> List[str]:
         try:
             active_wallets = set()
-            
             trustline_wallets = self.db.trustlines.distinct("wallet", {"timestamp": {"$gte": since}})
             active_wallets.update(trustline_wallets)
-            
             trade_wallets = self.db.purchases.distinct("buyer", {"timestamp": {"$gte": since}})
             active_wallets.update(trade_wallets)
             seller_wallets = self.db.purchases.distinct("seller", {"timestamp": {"$gte": since}})
             active_wallets.update(seller_wallets)
-            
             return list(active_wallets)
         except Exception as e:
             self.logger.error(f"Error getting active wallets: {e}")
@@ -385,8 +357,37 @@ class XRPLDatabase:
             )
             return True
         except Exception as e:
-            self.logger.error(f"Error updating wallet alpha score: {e}")
+            self.logger.error(f"Error updating alpha score: {e}")
             return False
+
+    def get_price_history(self, currency: str, issuer: str, 
+                         start_time: Optional[datetime] = None,
+                         end_time: Optional[datetime] = None) -> List[Dict]:
+        """Get token price history from trade data"""
+        try:
+            query = {"currency": currency, "issuer": issuer}
+            if start_time or end_time:
+                time_query = {}
+                if start_time:
+                    time_query["$gte"] = start_time
+                if end_time:
+                    time_query["$lte"] = end_time
+                if time_query:
+                    query["timestamp"] = time_query
+
+            trades = list(self.db.purchases.find(
+                query,
+                {"price_xrp": 1, "timestamp": 1, "_id": 0}
+            ).sort("timestamp", ASCENDING))
+
+            return [{
+                "price": Decimal(str(trade["price_xrp"])), 
+                "timestamp": trade["timestamp"]
+            } for trade in trades]
+            
+        except Exception as e:
+            self.logger.error(f"Error getting price history: {e}")
+            return []
 
     def get_top_alpha_wallets(self, limit: int = 100) -> List[Dict]:
         try:
@@ -417,67 +418,74 @@ class XRPLDatabase:
         except Exception as e:
             self.logger.error(f"Error getting wallet history: {e}")
             return []
-
-    def backfill_tracking_urls(self) -> bool:
-        """Add tracking URLs to existing token analyses that don't have them"""
-        try:
-            result = self.db.token_analysis.update_many(
-                {"tracking_url": {"$exists": False}},
-                [{
-                    "$set": {
-                        "tracking_url": {
-                            "$concat": [
-                                "https://xmagnetic.org/tokens/",
-                                "$currency",
-                                "+",
-                                "$issuer",
-                                "?network=mainnet"
-                            ]
-                        }
-                    }
-                }]
-            )
-            self.logger.info(f"Updated {result.modified_count} tokens with tracking URLs")
-            return True
-        except Exception as e:
-            self.logger.error(f"Error backfilling tracking URLs: {e}")
-            return False
         
-        # Add to db_handler.py
+    def get_token_max_price(self, currency: str, issuer: str) -> Optional[Decimal]:
+        """
+        Retrieve the maximum price for a given token.
+        """
+        try:
+            token = self.db.token_analysis.find_one(
+                {"currency": currency, "issuer": issuer},
+                {"max_price": 1, "_id": 0}
+            )
+            if token and "max_price" in token:
+                return Decimal(str(token["max_price"]))
+        except Exception as e:
+            self.logger.error(f"Error getting max price: {e}")
+        return None
+    
+    def update_token_max_price(
+        self,
+        currency: str,
+        issuer: str,
+        price: Decimal,
+        timestamp: datetime
+    ) -> None:
+        """
+        Update the maximum price for the specified token.
+        """
+        try:
+            self.db.token_analysis.update_one(
+                {"currency": currency, "issuer": issuer},
+                {
+                    "$set": {
+                        "max_price": str(price),
+                        "max_price_updated": timestamp
+                    }
+                },
+                upsert=True
+            )
+        except Exception as e:
+            self.logger.error(f"Error updating token max price: {e}")
 
-def get_token_trustline_position(self, currency: str, issuer: str, timestamp: datetime) -> int:
-    """Get the position of a trustline in a token's timeline (1st, 2nd, etc)"""
-    try:
-        # Get all trustlines for this token up to this timestamp
-        earlier_trustlines = self.db.trustlines.count_documents({
-            "currency": currency,
-            "issuer": issuer,
-            "timestamp": {"$lte": timestamp},
-            "limit": {"$ne": "0"}  # Exclude removed trustlines
-        })
-        return earlier_trustlines + 1
-    except Exception as e:
-        self.logger.error(f"Error getting trustline position: {e}")
-        return float('inf')  # Return infinity to exclude from early adopter count
+    def update_token_price(
+        self,
+        currency: str,
+        issuer: str,
+        price: Decimal,
+        timestamp: datetime
+    ) -> None:
+        """
+        Update the current price for the specified token.
 
-def get_wallet_all_trades(self, wallet: str) -> List[Dict]:
-    """Get all trades for a wallet (both buys and sells)"""
-    try:
-        return list(self.db.purchases.find(
-            {
-                "$or": [{"buyer": wallet}, {"seller": wallet}]
-            },
-            {
-                "currency": 1,
-                "issuer": 1,
-                "buyer": 1,
-                "seller": 1,
-                "amount": 1,
-                "price_xrp": 1,
-                "timestamp": 1,
-                "_id": 0
-            }
-        ).sort("timestamp", ASCENDING))
-    except Exception as e:
-        self.logger.error(f"Error getting wallet trades: {e}")
-        return []
+        :param currency: The currency code of the token.
+        :param issuer: The issuer address of the token.
+        :param price: The current price of the token as a Decimal.
+        :param timestamp: The datetime when the price was updated.
+        """
+        try:
+            self.db.token_analysis.update_one(
+                {"currency": currency, "issuer": issuer},
+                {
+                    "$set": {
+                        "current_price": str(price),
+                        "current_price_updated": timestamp
+                    }
+                },
+                upsert=True
+            )
+            self.logger.debug(
+                f"Updated current price for {currency} issued by {issuer} to {price} XRP at {timestamp}"
+            )
+        except Exception as e:
+            self.logger.error(f"Error updating token price for {currency} issued by {issuer}: {e}")
