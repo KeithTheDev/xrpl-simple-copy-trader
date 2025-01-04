@@ -1,3 +1,4 @@
+# config.yaml
 # Network configuration
 network:
   websocket_url: "wss://s.altnet.rippletest.net:51233"  # Default to testnet
@@ -6,7 +7,8 @@ network:
 
 # Wallet configuration
 wallets:
-  target_wallet: ""
+  target_wallet: "rhub8VRN55s94qWKDv6jmDy1pUykJzF3wq"
+  follower_wallet: ""
   follower_seed: ""
 
 # Trading configuration
@@ -14,6 +16,8 @@ trading:
   initial_purchase_amount: "1"
   min_trust_line_amount: "1000"
   max_trust_line_amount: "10000"
+  send_max_xrp: "85"      # Maximum XRP to spend per purchase
+  slippage_percent: "5"   # Allowed slippage in percent
 
 # Logging configuration
 logging:
@@ -21,16 +25,16 @@ logging:
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   filename: "xrpl_trader.log"
 
+# Monitoring configuration
 monitoring:
-  min_trade_volume: 1000
-  min_trust_lines: 5
-  data_file: "token_data.json"  # Valfritt, default är 'token_data.json'
-  save_interval_minutes: 5  # Spara var 5:e minut
+  min_trade_volume: 1000    # Minimum trade volume to log
+  min_trust_lines: 5        # Number of trust lines before token is marked as "interesting"
+  data_file: "token_data.json"  # File for storing token data
+  save_interval_minutes: 5      # Save state every 5 minutes
 
-# Trading configuration
-trading:
-  initial_purchase_amount: "1"
-  min_trust_line_amount: "1000"
-  max_trust_line_amount: "10000"
-  send_max_xrp: "85"      # Maximum XRP to spend per purchase
-  slippage_percent: "5"    # Allowed slippage in percent
+# Analytics configuration
+analytics:
+  price_check_interval_minutes: 5  # How often to check prices
+  min_liquidity: 1000             # Minimum liquidity for price tracking
+  max_slippage: 10                # Maximum allowed slippage for price checks
+

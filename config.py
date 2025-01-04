@@ -27,8 +27,9 @@ class Config:
             'reconnect_delay_seconds': 5
         },
         'wallets': {
-            'target_wallet': "",
-            'follower_seed': ""
+            'target_wallet': "",    # Public address of wallet to follow/copy
+            'follower_seed': "",    # Private seed for your own wallet
+            'follower_wallet': ""   # Public address for your wallet (calculated from seed)
         },
         'trading': {
             'initial_purchase_amount': "1",
@@ -48,6 +49,21 @@ class Config:
         self.config_path = config_path
         self.config = self._load_config()
         
+    def _validate_and_update_follower_wallet(self) -> None:
+        """Validate follower_seed and update follower_wallet"""
+        try:
+            from xrpl.wallet import Wallet
+            
+            follower_seed = self.get('wallets', 'follower_seed')
+            if follower_seed:
+                follower_wallet = Wallet.from_seed(follower_seed)
+                # Update follower_wallet in config
+                if 'wallets' not in self.config:
+                    self.config['wallets'] = {}
+                self.config['wallets']['follower_wallet'] = follower_wallet.classic_address
+        except Exception as e:
+            print(f"\nError validating follower_seed: {e}")
+
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from YAML files with fallback to defaults"""
         # Start with default config
@@ -58,6 +74,7 @@ class Config:
             with open("config.yaml", 'r') as f:
                 default_file_config = yaml.safe_load(f) or {}
                 config = self._merge_configs(config, default_file_config)
+                print("Loaded config.yaml successfully.")
         except FileNotFoundError:
             print("Warning: Config file config.yaml not found")
         except yaml.YAMLError as e:
@@ -69,75 +86,20 @@ class Config:
                 with open(self.config_path, 'r') as f:
                     local_config = yaml.safe_load(f) or {}
                     config = self._merge_configs(config, local_config)
+                    print(f"Loaded {self.config_path} successfully.")
             except FileNotFoundError:
                 print(f"Warning: Config file {self.config_path} not found")
             except yaml.YAMLError as e:
                 print(f"Error parsing config file {self.config_path}: {e}")
+
+        # Update follower_wallet from seed if needed
+        self._validate_and_update_follower_wallet()
         
-        # Validate and sanitize configuration
-        self._validate_and_convert_types(config)
+        # Log the merged configuration for debugging
+        print("Merged Configuration:")
+        print(yaml.dump(config, sort_keys=False))
+        
         return config
-    
-    def _validate_and_convert_types(self, config: Dict[str, Any]) -> None:
-        """Validate and convert configuration values to correct types"""
-        # Network settings
-        if 'network' in config:
-            net_config = config['network']
-            
-            # Validate websocket URL
-            if 'websocket_url' in net_config:
-                url = net_config['websocket_url']
-                if not self._is_valid_websocket_url(url):
-                    net_config['websocket_url'] = self.DEFAULT_CONFIG['network']['websocket_url']
-            
-            # Convert numeric values to correct types
-            if 'max_reconnect_attempts' in net_config:
-                try:
-                    net_config['max_reconnect_attempts'] = int(net_config['max_reconnect_attempts'])
-                except (ValueError, TypeError):
-                    net_config['max_reconnect_attempts'] = self.DEFAULT_CONFIG['network']['max_reconnect_attempts']
-            
-            if 'reconnect_delay_seconds' in net_config:
-                try:
-                    net_config['reconnect_delay_seconds'] = int(float(net_config['reconnect_delay_seconds']))
-                except (ValueError, TypeError):
-                    net_config['reconnect_delay_seconds'] = self.DEFAULT_CONFIG['network']['reconnect_delay_seconds']
-
-        # Trading settings
-        if 'trading' in config:
-            trade_config = config['trading']
-            
-            # Validate amount values
-            for key in ['initial_purchase_amount', 'min_trust_line_amount', 'max_trust_line_amount']:
-                if key in trade_config:
-                    try:
-                        value = float(str(trade_config[key]))
-                        if value <= 0:
-                            trade_config[key] = self.DEFAULT_CONFIG['trading'][key]
-                        elif key == 'initial_purchase_amount':
-                            trade_config[key] = str(value)  # Keep as string
-                        else:
-                            trade_config[key] = int(value)  # Convert to int for trust line amounts
-                    except (ValueError, TypeError):
-                        trade_config[key] = self.DEFAULT_CONFIG['trading'][key]
-            
-            # Ensure max >= min for trust line amounts
-            try:
-                if float(trade_config['max_trust_line_amount']) < float(trade_config['min_trust_line_amount']):
-                    trade_config['max_trust_line_amount'] = self.DEFAULT_CONFIG['trading']['max_trust_line_amount']
-                    trade_config['min_trust_line_amount'] = self.DEFAULT_CONFIG['trading']['min_trust_line_amount']
-            except (KeyError, ValueError, TypeError):
-                pass
-
-    def _is_valid_websocket_url(self, url: str) -> bool:
-        """Validate websocket URL"""
-        try:
-            parsed = urlparse(url)
-            if parsed.scheme not in ('ws', 'wss'):
-                return False
-            return any(endpoint in parsed.netloc for endpoint in self.ALLOWED_ENDPOINTS)
-        except Exception:
-            return False
     
     def _merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
         """Deep merge two configurations"""
@@ -165,15 +127,67 @@ class Config:
 
     def validate(self) -> bool:
         """Validate required configuration values"""
-        required_values = [
-            ('wallets', 'target_wallet'),
-            ('wallets', 'follower_seed'),
-            ('network', 'websocket_url'),
-        ]
-        
-        for keys in required_values:
-            value = self.get(*keys)
-            if not value:
-                print(f"Missing required configuration: {'.'.join(keys)}")
+        try:
+            from xrpl.wallet import Wallet
+            
+            target_wallet = self.get('wallets', 'target_wallet')
+            follower_seed = self.get('wallets', 'follower_seed')
+            follower_wallet = self.get('wallets', 'follower_wallet')
+            websocket_url = self.get('network', 'websocket_url')
+
+            if not os.path.exists(self.config_path):
+                print(f"\nError: {self.config_path} not found")
+                print("Run generate_wallet.py first to create your follower wallet")
+                print(f"Then copy example.config.local.yaml to {self.config_path} and update wallet settings")
                 return False
-        return True
+
+            if not target_wallet:
+                print("\nError: Missing target_wallet in config")
+                print(f"Add the public address of the wallet you want to follow to {self.config_path}")
+                print("This should be a public XRPL address starting with 'r'")
+                return False
+
+            if not follower_seed:
+                print("\nError: Missing follower_seed in config")
+                print("Run generate_wallet.py to create a new wallet - this will give you both")
+                print("the public address (follower_wallet) and private seed (follower_seed)")
+                print(f"Then add the follower_seed to {self.config_path}")
+                print("\nNOTE: Keep your follower_seed secret! Never share it with anyone!")
+                return False
+                
+            if not websocket_url:
+                print("\nError: Missing websocket_url in config")
+                print("Add a valid XRPL websocket URL to config.local.yaml")
+                return False
+
+            # Validate target wallet format
+            if not target_wallet.startswith('r'):
+                print(f"\nError: Invalid target_wallet format: {target_wallet}")
+                print("The target wallet must be a public XRPL address starting with 'r'")
+                return False
+
+            # Validate follower seed and wallet combination
+            try:
+                calc_wallet = Wallet.from_seed(follower_seed)
+                if follower_wallet and calc_wallet.classic_address != follower_wallet:
+                    print("\nWarning: follower_wallet in config doesn't match the address derived from follower_seed")
+                    print(f"Expected: {calc_wallet.classic_address}")
+                    print(f"Found: {follower_wallet}")
+                    print("Using the correct address derived from seed.")
+                    self.config['wallets']['follower_wallet'] = calc_wallet.classic_address
+                elif not follower_wallet:
+                    self.config['wallets']['follower_wallet'] = calc_wallet.classic_address
+                
+                print(f"\nValidated follower wallet configuration:")
+                print(f"Public address: {calc_wallet.classic_address}")
+            except Exception as e:
+                print(f"\nError: Invalid follower_seed format: {e}")
+                print("Run generate_wallet.py to generate a valid wallet")
+                print("This will give you both your public address and private seed")
+                return False
+
+            return True
+            
+        except Exception as e:
+            print(f"\nError validating config: {e}")
+            return False

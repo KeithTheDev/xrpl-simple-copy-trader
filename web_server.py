@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,22 +13,14 @@ from typing import List, Dict, Any
 from datetime import datetime
 import os
 
+# Import the monitor
 from memecoin_monitor import XRPLTokenMonitor
 from config import Config
 
-app = FastAPI()
-
-# Initialize app state from environment
-app.debug_mode = os.environ.get('APP_DEBUG', 'False').lower() == 'true'
-app.test_mode = os.environ.get('APP_TEST', 'False').lower() == 'true'
-
-# Ensure directories exist
-os.makedirs("templates", exist_ok=True)
-os.makedirs("static", exist_ok=True)
-
-# Setup templates and static files
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Base paths
+BASE_DIR = Path(__file__).parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
 
 # Global state
 monitor: XRPLTokenMonitor = None
@@ -42,16 +36,16 @@ monitor_stats = {
     "test_mode": False
 }
 
-# Callback for TrustSet transactions
+# Callback för TrustSet transaktioner
 async def on_trust_line_created(tx_data: Dict[str, Any]):
     global monitor_stats
     monitor_stats["trust_lines_today"] += 1
     monitor_stats["transactions_today"] += 1
-    monitor_stats["last_transaction"] = f"TrustSet: Hash={tx_data.get('hash', 'Unknown')}"
+    monitor_stats["last_transaction"] = f"TrustSet: Hash={tx_data.get('tx_hash', 'Unknown')}"
     logging.info(f"Updated monitor_stats: {monitor_stats}")
     await broadcast_stats()
 
-# Callback when monitoring starts
+# Callback när monitorn startar
 async def on_monitor_started():
     global monitor_stats
     monitor_stats["status"] = "running"
@@ -60,41 +54,63 @@ async def on_monitor_started():
     logging.info("Monitor started - updating monitor_stats and broadcasting to clients.")
     await broadcast_stats()
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     global monitor, monitor_stats
+    
+    # Ensure directories exist
+    TEMPLATES_DIR.mkdir(exist_ok=True)
+    STATIC_DIR.mkdir(exist_ok=True)
+
+    # Check if index.html exists
+    INDEX_TEMPLATE = TEMPLATES_DIR / "index.html"
+    if not INDEX_TEMPLATE.exists():
+        raise FileNotFoundError(
+            "index.html not found in templates directory. "
+            "Please ensure template files are in place before starting the server."
+        )
+    
+    # Validate config
     config = Config()
     if not config.validate():
         raise Exception("Invalid configuration")
-
+            
     # Initialize monitor with flags from environment
-    debug_mode = app.debug_mode
-    test_mode = app.test_mode
-
-    # Initialize monitor
     monitor = XRPLTokenMonitor(
-        config,
-        debug=debug_mode,
-        test_mode=test_mode
+        config, 
+        debug=app.debug_mode,
+        test_mode=app.test_mode
     )
-
+    
     # Set global callbacks
     monitor.on_trust_line_created = on_trust_line_created
     monitor.on_monitor_started = on_monitor_started
 
     # Update monitor_stats with current settings
     monitor_stats.update({
-        "debug_mode": debug_mode,
-        "test_mode": test_mode
+        "debug_mode": app.debug_mode,
+        "test_mode": app.test_mode
     })
-    logging.info(f"Startup complete - debug={debug_mode}, test={test_mode}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global monitor
+    logging.info(f"Startup complete - debug={app.debug_mode}, test={app.test_mode}")
+    
+    yield
+    
+    # Shutdown
     if monitor:
         await monitor.stop()
         logging.info("Monitor stopped during shutdown.")
+
+# Initialize app
+app = FastAPI(lifespan=lifespan)
+
+# Initialize app state from environment
+app.debug_mode = os.environ.get('APP_DEBUG', 'False').lower() == 'true'
+app.test_mode = os.environ.get('APP_TEST', 'False').lower() == 'true'
+
+# Setup templates and static files
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -139,7 +155,7 @@ async def broadcast_stats():
     """Broadcast current stats to all connected clients"""
     if not active_connections:
         return
-    
+
     message_data = json.dumps(monitor_stats)
     logging.debug(f"Broadcasting stats to {len(active_connections)} clients: {monitor_stats}")
     await asyncio.gather(*[client.send_text(message_data) for client in active_connections], return_exceptions=True)
@@ -215,6 +231,7 @@ if __name__ == "__main__":
     app.debug_mode = args.debug
     app.test_mode = args.test
 
+    # Set up root logger
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -222,6 +239,10 @@ if __name__ == "__main__":
             logging.StreamHandler()
         ]
     )
+    
+    # Set specific levels for noisy libraries
+    logging.getLogger('websockets').setLevel(logging.INFO)
+    logging.getLogger('websockets.client').setLevel(logging.INFO)
 
     logging.info(f"Starting web_server.py with debug={app.debug_mode}, test_mode={app.test_mode}, port={args.port}")
     

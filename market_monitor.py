@@ -1,340 +1,265 @@
+# market_monitor.py
+
 import asyncio
 import json
-import logging
 from datetime import datetime
-from typing import Dict, Any, Set
+from typing import Dict, Set, Union
+from decimal import Decimal
 
-from xrpl.asyncio.clients import AsyncWebsocketClient
 from xrpl.models.requests import Subscribe
+from xrpl.wallet import Wallet
+
+from utils.xrpl_base_monitor import XRPLBaseMonitor
+from utils.xrpl_transaction_parser import XRPLTransactionParser, TrustSetInfo, PaymentInfo
+from utils.xrpl_logger import XRPLLogger
 from config import Config
+from utils.db_handler import XRPLDatabase
 
-class XRPLMarketMonitor:
+class TokenInfo:
+    """Class to track token information"""
+    def __init__(self, currency: str, issuer: str):
+        self.currency = currency
+        self.issuer = issuer
+        self.first_seen = datetime.now()
+        self.trust_lines = 1
+        self.total_volume = Decimal('0')
+        self.trades = 0
+        self.first_trade: datetime = None
+
+class XRPLMarketMonitor(XRPLBaseMonitor):
     def __init__(self, config: Config, debug: bool = False):
+        # Initialize base monitor
+        super().__init__(
+            websocket_url=config.get('network', 'websocket_url'),
+            logger_name='XRPLMarketMonitor',
+            max_reconnect_attempts=int(config.get('network', 'max_reconnect_attempts', fallback=5)),
+            reconnect_delay=int(config.get('network', 'reconnect_delay_seconds', fallback=5))
+        )
+        
+        # Initialize components
         self.config = config
-        self.websocket_url = config.get('network', 'websocket_url')
-        self.is_running = False
-
-        # Setup logging first
-        self.logger = logging.getLogger('XRPLMarketMonitor')
-        self.logger.setLevel(logging.DEBUG if debug else logging.INFO)
+        self.db = XRPLDatabase()
+        self.tx_parser = XRPLTransactionParser()
         
-        if not self.logger.handlers:
-            # File handler from config
-            log_config = config.get('logging', default={})
-            if log_config.get('filename'):
-                file_handler = logging.FileHandler(log_config['filename'])
-                file_handler.setFormatter(logging.Formatter(log_config.get('format', '%(message)s')))
-                self.logger.addHandler(file_handler)
-            
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('%(message)s'))
-            self.logger.addHandler(console_handler)
+        # Set up logger
+        log_config = config.get('logging', default={})
+        self.logger = XRPLLogger(
+            name='XRPLMarketMonitor',
+            log_file=log_config.get('filename'),
+            log_level=log_config.get('level', 'INFO'),
+            debug=debug
+        )
 
-        if debug:
-            self.logger.info("Debug mode enabled")
-        
-        # Configuration
-        self.min_trade_volume = float(config.get('monitoring', 'min_trade_volume', default=1000))
-        self.min_trust_lines = int(config.get('monitoring', 'min_trust_lines', default=5))
-        self.data_file = config.get('monitoring', 'data_file', default='token_data.json')
-        self.save_interval = int(config.get('monitoring', 'save_interval_minutes', default=5)) * 60  # Convert to seconds
+        # Load configuration
+        self.min_trade_volume = float(config.get('monitoring', 'min_trade_volume', fallback=1000))
+        self.min_trust_lines = int(config.get('monitoring', 'min_trust_lines', fallback=5))
+        self.data_file = config.get('monitoring', 'data_file', fallback='token_data.json')
+        self.save_interval = int(config.get('monitoring', 'save_interval_minutes', fallback=5)) * 60
+
+        # State tracking
+        self.tokens: Dict[str, TokenInfo] = {}
+        self.hot_tokens: Set[str] = set()
         self.last_save = datetime.now()
-        
-        # Load existing data or initialize new
-        stored_data = self._load_data()
-        
-        # Track token data
-        self.tokens = stored_data.get('tokens', {})
-        self.hot_tokens = set(stored_data.get('hot_tokens', []))
-        self.traded_tokens = stored_data.get('traded_tokens', {})
-        
-        # Track token data
-        self.tokens = stored_data.get('tokens', {})
-        self.hot_tokens = set(stored_data.get('hot_tokens', []))
-        self.traded_tokens = stored_data.get('traded_tokens', {})
-        
-        # Convert stored datetime strings back to datetime objects
-        for token_data in self.tokens.values():
-            if isinstance(token_data.get('first_seen'), str):
-                token_data['first_seen'] = datetime.fromisoformat(token_data['first_seen'])
-                
-        for trade_data in self.traded_tokens.values():
-            if isinstance(trade_data.get('first_trade'), str):
-                trade_data['first_trade'] = datetime.fromisoformat(trade_data['first_trade'])
+        self.status_task = None
 
-        # Setup logging
-        self.logger = logging.getLogger('XRPLMarketMonitor')
-        self.logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    async def _subscribe(self, client) -> None:
+        """Subscribe to all transactions on the network"""
+        subscribe_request = Subscribe(streams=["transactions"])
+        await client.send(subscribe_request)
+        self.logger.success(f"Subscribed to XRPL transaction stream")
         
-        if not self.logger.handlers:
-            # File handler from config
-            log_config = config.get('logging', default={})
-            if log_config.get('filename'):
-                file_handler = logging.FileHandler(log_config['filename'])
-                file_handler.setFormatter(logging.Formatter(log_config.get('format', '%(message)s')))
-                self.logger.addHandler(file_handler)
-            
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter('%(message)s'))
-            self.logger.addHandler(console_handler)
+        # Start status updates
+        self.status_task = asyncio.create_task(self._periodic_status_update())
 
-        if debug:
-            self.logger.info("Debug mode enabled")
-
-    def get_token_key(self, currency: str, issuer: str) -> str:
-        """Create a unique key for a token"""
-        return f"{currency}:{issuer}"
-        
-    def _load_data(self) -> Dict:
-        """Load token data from JSON file"""
+    async def _handle_message(self, client, message: Union[str, Dict]) -> None:
+        """Process incoming messages using the transaction parser"""
         try:
-            with open(self.data_file, 'r') as f:
-                data = json.load(f)
-                self.logger.info(f"Loaded data for {len(data.get('tokens', {}))} tokens")
-                return data
-        except FileNotFoundError:
-            self.logger.info(f"No existing data file found at {self.data_file}, starting fresh")
-            # Create empty file to prevent future FileNotFoundError
-            with open(self.data_file, 'w') as f:
-                json.dump({}, f)
-            return {}
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Error reading data file: {e}, starting fresh")
-            return {}
+            # Convert message to dict if it's a string
+            if isinstance(message, str):
+                data = json.loads(message)
+            else:
+                data = message
+
+            tx_type, parsed_info = self.tx_parser.parse_transaction(data, self.min_trade_volume)
             
-    def _save_data(self):
-        """Save token data to JSON file"""
-        # Convert datetime objects to ISO format strings for JSON serialization
-        data = {
+            if tx_type == "TrustSet" and isinstance(parsed_info, TrustSetInfo):
+                await self.handle_trust_set(parsed_info)
+            elif tx_type == "Payment" and isinstance(parsed_info, PaymentInfo):
+                await self.handle_payment(parsed_info)
+            
+            # Check if it's time to save data
+            now = datetime.now()
+            if (now - self.last_save).total_seconds() >= self.save_interval:
+                self._save_data()
+                self.last_save = now
+                
+        except json.JSONDecodeError:
+            self.logger.error("Failed to parse message")
+        except Exception as e:
+            self.logger.error_with_context("message handling", e)
+
+    async def handle_trust_set(self, trust_info: TrustSetInfo) -> None:
+        """Handle parsed TrustSet information"""
+        token_key = self.tx_parser.get_token_key(trust_info.currency, trust_info.issuer)
+        
+        # Store in analytics database
+        self.db.analytics_add_trust_line(
+            currency=trust_info.currency,
+            issuer=trust_info.issuer,
+            wallet=trust_info.wallet,
+            limit=trust_info.value,
+            tx_hash=trust_info.tx_hash
+        )
+        
+        if trust_info.value == "0":
+            # Trust line removal
+            if token_key in self.tokens:
+                self.tokens[token_key].trust_lines = max(0, self.tokens[token_key].trust_lines - 1)
+                self.logger.log_trust_line_update(
+                    trust_info.currency,
+                    trust_info.issuer,
+                    self.tokens[token_key].trust_lines,
+                    removed=True
+                )
+        else:
+            # New trust line
+            if token_key not in self.tokens:
+                self.tokens[token_key] = TokenInfo(trust_info.currency, trust_info.issuer)
+                self.logger.log_token_discovery(
+                    trust_info.currency,
+                    trust_info.issuer,
+                    trust_info.value
+                )
+            else:
+                self.tokens[token_key].trust_lines += 1
+                self._check_hot_token_status(token_key)
+
+    async def handle_payment(self, payment_info: PaymentInfo) -> None:
+        """Handle parsed Payment information"""
+        token_key = self.tx_parser.get_token_key(payment_info.currency, payment_info.issuer)
+        
+        if token_key not in self.tokens:
+            return
+
+        # Store in analytics database
+        self.db.analytics_add_trade(
+            currency=payment_info.currency,
+            issuer=payment_info.issuer,
+            amount=str(payment_info.delivered_amount),
+            price_xrp="0",  # Will need price monitoring
+            buyer=payment_info.buyer,
+            seller=payment_info.seller,
+            tx_hash=payment_info.tx_hash
+        )
+
+        # Update token tracking
+        token = self.tokens[token_key]
+        if token.first_trade is None:
+            token.first_trade = payment_info.timestamp
+            self.logger.log_trade(
+                token.currency,
+                token.issuer,
+                str(payment_info.value),
+                str(token.total_volume),
+                token.trades,
+                token.trust_lines,
+                is_hot=False
+            )
+        
+        token.total_volume += payment_info.value
+        token.trades += 1
+        
+        if token_key in self.hot_tokens:
+            self.logger.log_trade(
+                token.currency,
+                token.issuer,
+                str(payment_info.value),
+                str(token.total_volume),
+                token.trades,
+                token.trust_lines,
+                is_hot=True
+            )
+
+    def _check_hot_token_status(self, token_key: str) -> None:
+        """Check if a token has reached hot status"""
+        token = self.tokens[token_key]
+        if token.trust_lines == self.min_trust_lines:
+            self.hot_tokens.add(token_key)
+            time_to_hot = datetime.now() - token.first_seen
+            self.logger.log_hot_token(
+                token.currency,
+                token.issuer,
+                token.trust_lines,
+                time_to_hot
+            )
+
+    def _save_data(self) -> None:
+        """Save current state to JSON file"""
+        snapshot = {
+            'timestamp': datetime.now().isoformat(),
             'tokens': {
-                k: {**v, 'first_seen': v['first_seen'].isoformat()} 
-                for k, v in self.tokens.items()
+                k: {
+                    'currency': v.currency,
+                    'issuer': v.issuer,
+                    'first_seen': v.first_seen.isoformat(),
+                    'trust_lines': v.trust_lines,
+                    'total_volume': str(v.total_volume),
+                    'trades': v.trades,
+                    'first_trade': v.first_trade.isoformat() if v.first_trade else None
+                } for k, v in self.tokens.items()
             },
-            'hot_tokens': list(self.hot_tokens),
-            'traded_tokens': {
-                k: {**v, 'first_trade': v['first_trade'].isoformat()} 
-                for k, v in self.traded_tokens.items()
-            }
+            'hot_tokens': list(self.hot_tokens)
         }
         
         try:
             with open(self.data_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            self.logger.info(f"Saved data for {len(self.tokens)} tokens")
+                json.dump(snapshot, f, indent=2)
+            self.logger.debug(f"State snapshot saved to {self.data_file}")
         except Exception as e:
-            self.logger.error(f"Error saving data: {e}")
+            self.logger.error_with_context("save data", e)
 
-    async def handle_trust_set(self, tx: Dict[str, Any]):
-        """Handle TrustSet transactions to detect new tokens and track trust lines"""
-        limit_amount = tx.get("LimitAmount", {})
-        if not isinstance(limit_amount, dict):
-            return
+    async def _periodic_status_update(self) -> None:
+        """Print periodic status updates"""
+        try:
+            while self.is_running:
+                await asyncio.sleep(300)  # 5 minutes
+                self._print_status_update()
+        except asyncio.CancelledError:
+            pass
 
-        currency = limit_amount.get("currency")
-        issuer = limit_amount.get("issuer")
-        value = limit_amount.get("value")
-
-        if not all([currency, issuer, value]):
-            return
-
-        token_key = self.get_token_key(currency, issuer)
-        
-        if value == "0":
-            # Trust line removal
-            if token_key in self.tokens:
-                self.tokens[token_key]['trust_lines'] = max(0, self.tokens[token_key]['trust_lines'] - 1)
-                print(f"\n🔥 Trust line removed for {currency}")
-                print(f"   Issuer: {issuer}")
-                print(f"   Remaining trust lines: {self.tokens[token_key]['trust_lines']}\n")
-        else:
-            # New trust line
-            if token_key not in self.tokens:
-                # First time seeing this token
-                self.tokens[token_key] = {
-                    'currency': currency,
-                    'issuer': issuer,
-                    'first_seen': datetime.now(),
-                    'trust_lines': 1
-                }
-                print(f"\n🆕 New token discovered!")
-                print(f"   Currency: {currency}")
-                print(f"   Issuer: {issuer}")
-                print(f"   First trust line value: {value}\n")
-            else:
-                # Increment trust lines
-                self.tokens[token_key]['trust_lines'] += 1
-                current_trust_lines = self.tokens[token_key]['trust_lines']
-                
-                # Check if token just became "hot"
-                if current_trust_lines == self.min_trust_lines:
-                    self.hot_tokens.add(token_key)
-                    time_to_hot = datetime.now() - self.tokens[token_key]['first_seen']
-                    print(f"\n🔥 Token reached {self.min_trust_lines} trust lines!")
-                    print(f"   Currency: {currency}")
-                    print(f"   Issuer: {issuer}")
-                    print(f"   Time to reach {self.min_trust_lines} trust lines: {time_to_hot}\n")
-
-    async def handle_payment(self, tx: Dict[str, Any]):
-        """Handle Payment transactions to track token trading activity"""
-        amount = tx.get("Amount")
-        if not isinstance(amount, dict):  # Skip XRP payments
-            return
-
-        currency = amount.get("currency")
-        issuer = amount.get("issuer")
-        value = float(amount.get("value", 0))
-
-        if not all([currency, issuer]) or value < self.min_trade_volume:
-            return
-
-        token_key = self.get_token_key(currency, issuer)
-        
-        # Only track trades for tokens we've seen trust lines for
-        if token_key in self.tokens:
-            # Initialize trading data if first trade
-            if token_key not in self.traded_tokens:
-                self.traded_tokens[token_key] = {
-                    'total_volume': value,
-                    'trades': 1,
-                    'first_trade': datetime.now()
-                }
-                time_to_trade = self.traded_tokens[token_key]['first_trade'] - self.tokens[token_key]['first_seen']
-                print(f"\n💰 First trade for token {currency}!")
-                print(f"   Issuer: {issuer}")
-                print(f"   Amount: {value}")
-                print(f"   Time from first trust line to first trade: {time_to_trade}")
-                if token_key in self.hot_tokens:
-                    print(f"   ⚠️  This token has {self.tokens[token_key]['trust_lines']} trust lines!")
-                print()
-            else:
-                # Update trading stats
-                self.traded_tokens[token_key]['total_volume'] += value
-                self.traded_tokens[token_key]['trades'] += 1
-                
-                # Log significant trades for hot tokens
-                if token_key in self.hot_tokens:
-                    print(f"\n💸 Hot token traded!")
-                    print(f"   Currency: {currency}")
-                    print(f"   Amount: {value}")
-                    print(f"   Total volume: {self.traded_tokens[token_key]['total_volume']}")
-                    print(f"   Total trades: {self.traded_tokens[token_key]['trades']}")
-                    print(f"   Trust lines: {self.tokens[token_key]['trust_lines']}\n")
-
-    async def monitor(self):
-        """Main monitoring loop"""
-        self.is_running = True
-        
-        while self.is_running:
-            try:
-                self.logger.info(f"Connecting to {self.websocket_url}")
-                
-                async with AsyncWebsocketClient(self.websocket_url) as client:
-                    self.logger.info("Connected to XRPL")
-
-                    # Subscribe to all transactions
-                    subscribe_request = Subscribe(streams=["transactions"])
-                    await client.send(subscribe_request)
-                    self.logger.info("Subscribed to transaction stream")
-                    
-                    # Monitor incoming messages
-                    async for message in client:
-                        if not self.is_running:
-                            break
-                            
-                        # Handle message
-                        if isinstance(message, str):
-                            try:
-                                data = json.loads(message)
-                            except json.JSONDecodeError:
-                                self.logger.error(f"Failed to parse message: {message}")
-                                continue
-                        else:
-                            data = message
-
-                        # Process validated transactions
-                        if data.get("type") == "transaction" and data.get("validated", False):
-                            tx = data.get("transaction", {})
-                            tx_type = tx.get("TransactionType")
-                            
-                            # Print full transaction for debugging
-                            if tx:
-                                print(f"\nTransaction:")
-                                print(json.dumps(tx, indent=2))
-                            else:
-                                print("\nEmpty transaction data in:", json.dumps(data, indent=2))
-                            
-                            if tx_type == "TrustSet":
-                                await self.handle_trust_set(tx)
-                            elif tx_type == "Payment":
-                                await self.handle_payment(tx)
-                            
-                            # Check if it's time to save data
-                            now = datetime.now()
-                            if (now - self.last_save).total_seconds() >= self.save_interval:
-                                self._save_data()
-                                self.last_save = now
-                                self.logger.debug(f"Auto-saved data at {now}")
-
-            except asyncio.CancelledError:
-                self.logger.info("Monitoring cancelled...")
-                break
-            except Exception as e:
-                self.logger.error(f"Connection error: {str(e)}")
-                if self.is_running:
-                    self.logger.info("Reconnecting in 5 seconds...")
-                    await asyncio.sleep(5)
-                continue
-
-    async def stop(self):
-        """Gracefully stop the monitor"""
-        self.logger.info("Stopping monitor...")
-        self.is_running = False
-        
-        # Save data before stopping
-        self._save_data()
-        
-        # Print final statistics
-        print("\n📊 Final Statistics:")
-        print(f"Total unique tokens discovered: {len(self.tokens)}")
-        print(f"Tokens with {self.min_trust_lines}+ trust lines: {len(self.hot_tokens)}")
-        print(f"Tokens with recorded trades: {len(self.traded_tokens)}")
-        
-        # Print details for hot tokens
+    def _print_status_update(self) -> None:
+        """Print current monitoring status"""
+        token_details = []
         if self.hot_tokens:
-            print("\n🔥 Hot Tokens:")
             for token_key in self.hot_tokens:
                 token = self.tokens[token_key]
-                trading = self.traded_tokens.get(token_key, {})
-                print(f"\nToken: {token['currency']}")
-                print(f"Issuer: {token['issuer']}")
-                print(f"Trust lines: {token['trust_lines']}")
-                print(f"First seen: {token['first_seen']}")
-                if trading:
-                    print(f"Total volume: {trading['total_volume']}")
-                    print(f"Total trades: {trading['trades']}")
-                    print(f"First trade: {trading['first_trade']}")
+                details = [
+                    f"\n🔥 {token.currency}",
+                    f"   Issuer: {token.issuer}",
+                    f"   Trust lines: {token.trust_lines}",
+                    f"   Age: {datetime.now() - token.first_seen}",
+                    f"   Trade volume: {token.total_volume}",
+                    f"   Number of trades: {token.trades}"
+                ]
+                if token.first_trade:
+                    details.append(f"   Time to first trade: {token.first_trade - token.first_seen}")
+                token_details.extend(details)
+
+        self.logger.log_status_update(
+            total_tokens=len(self.tokens),
+            hot_tokens=len(self.hot_tokens),
+            token_details=token_details
+        )
 
 async def main():
-    # Parse command line arguments
     import argparse
     parser = argparse.ArgumentParser(description='XRPL Token Market Monitor')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug output')
-    parser.add_argument('--min-volume', type=float, help='Minimum trade volume to log')
-    parser.add_argument('--min-trust-lines', type=int, help='Minimum trust lines to mark as hot token')
     args = parser.parse_args()
 
-    # Load and validate configuration
     config = Config()
     if not config.validate():
         return
-
-    # Override config with command line arguments if provided
-    if args.min_volume:
-        config.set('monitoring', 'min_trade_volume', str(args.min_volume))
-    if args.min_trust_lines:
-        config.set('monitoring', 'min_trust_lines', str(args.min_trust_lines))
 
     monitor = XRPLMarketMonitor(config, debug=args.debug)
     

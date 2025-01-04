@@ -1,22 +1,41 @@
+---
+# example.config.local.yaml
 # Example local configuration - Copy this file to config.local.yaml and update values
 wallets:
-  target_wallet: "rXXXXXXXXXXXXXXX"  # The wallet you want to monitor
+  followe_wallet: "rXXXXXXXXXXXXXXX"  # Your follower wallet public address
   follower_seed: "sXXXXXXXXXXXXXXX"  # Your follower wallet seed (keep this secret!)
 
 # Optional: Override network settings
 network:
-  websocket_url: "wss://s.altnet.rippletest.net:51233"  # Testnet by default, change for mainnet
-  max_reconnect_attempts: 5  # Increase for more resilience
-  reconnect_delay_seconds: 5  # Delay between reconnection attempts
+  # websocket_url: "wss://s2.ripple.com"  # Mainnet
+  # websocket_url: "wss://xrplcluster.com" # Mainnet alternative
+  websocket_url: "wss://s.altnet.rippletest.net:51233"  # Testnet
+  max_reconnect_attempts: 5
+  reconnect_delay_seconds: 5
 
-# Optional: Override trading settings
+# Trading configuration
 trading:
   initial_purchase_amount: "1"    # Amount to purchase when new trust line is detected
   min_trust_line_amount: "1000"   # Minimum trust line amount to set
   max_trust_line_amount: "10000"  # Maximum trust line amount to set
+  send_max_xrp: "85"             # Maximum XRP to spend per purchase
+  slippage_percent: "5"          # Allowed slippage in percent
 
-# Optional: Override logging settings
+# Logging configuration
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"                  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  filename: "xrpl_trader.log"
+  filename: "xrpl_trader.log"    # Log file location
+
+# Monitoring configuration
+monitoring:
+  min_trade_volume: 1000         # Minimum trade volume to log
+  min_trust_lines: 5             # Number of trust lines before token is marked as "interesting"
+  data_file: "token_data.json"   # File for storing token data
+  save_interval_minutes: 5        # Save state every 5 minutes
+
+# Analytics configuration
+analytics:
+  price_check_interval_minutes: 5 # How often to check prices
+  min_liquidity: 1000            # Minimum liquidity for price tracking
+  max_slippage: 10               # Maximum allowed slippage for price checks
