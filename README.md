@@ -1,4 +1,24 @@
-# XRPL Token Monitor & Market Analyzer
+# XRPL Alpha wallet finder & Copy trader
+
+
+This README is out of date, and will be updated by Claude "wen tokens". Until then, here's the important stuff:
+
+## Important stuff here, everything else is outdated
+
+- The Alpha wallet finder is WORK IN PROGRESS. It starts and runs, hopefully.
+- The Alpha wallet finder ONLY "works" on Mac for now.
+- The Copy trader can start on Mac and Windows. The Linux script hasn't been tested.
+
+To get this running at all:
+
+- Python 3.10.16 or this will probably fail. Create an venv and do the usual pip install -r requirement.txt.
+- Create your own config.local.yaml. Look at example.config.local.yaml and create your own config.local.yaml.
+- To start the Copy trader on Mac: zsh start_copy_trader_on_mac.sh
+- To start the Copy trader on Windows: start_copytrader_on_windows.cmd in Powershell
+- To user the Copy trader: http://localhost:8000
+- To start the Alpha wallet finder (only Mac compatible): zsh alpha_wallet_finder_scripts/run_alpha_wallet_finder.sh
+
+## Old README, not too interesting
 
 A comprehensive Python toolkit for monitoring and analyzing token activities on the XRP Ledger (XRPL). This project consists of two main components: a token monitor for following and replicating trust line operations, and a market monitor for analyzing token trading patterns and trends.
 
