@@ -2,39 +2,35 @@ flowchart TB
     subgraph Data Collection
         XRPL[XRPL Network]
         MM[Market Monitor]
+        TA[Token Analyzer]
         PM[Price Monitor]
-        MM --> |Trust lines & Trades| DB[(MongoDB)]
-        PM --> |Price Updates| DB
-    end
-
-    subgraph Event Processing
-        DB --> EP[Event Processor]
-        EP --> |Token Events| TS[Token Stats]
-        EP --> |Wallet Events| WS[Wallet Stats]
-        TS --> FM[Feature Matrix Builder]
-        WS --> FM
-    end
-
-    subgraph Analysis
-        FM --> |Training Data| ML[ML Models]
-        ML --> |Predictions| AP[Analysis Pipeline]
         
-        subgraph ML Models
-            ML --> WR[Wallet Ranking]
-            ML --> TP[Token Prediction]
-            ML --> NA[Network Analysis]
-        end
+        XRPL --> MM
+        MM --> |New Tokens| DB[(MongoDB)]
+        TA --> |Token Analysis| DB
+        PM --> |Price History| DB
     end
 
-    subgraph Output
-        AP --> |Alerts & Insights| UI[User Interface]
-        AP --> |Signals| NS[Notification System]
+    subgraph Analysis Pipeline
+        DB --> |Token Data| WA[Wallet Analysis]
+        DB --> |Price Data| PA[Performance Analysis]
+        
+        WA --> |Early Adopters| AR[Alpha Ranking]
+        PA --> |Token Success Metrics| AR
+        
+        AR --> |Wallet Scoring| ML[ML Models]
+        ML --> |Predictions| AP[Analysis Results]
+    end
+
+    subgraph Insights
+        AP --> |Alpha Scores| Dashboard
+        AP --> |Alerts| Notifications
     end
 
     classDef primary fill:#f9f,stroke:#333,stroke-width:4px
     classDef secondary fill:#bbf,stroke:#333,stroke-width:2px
     classDef storage fill:#ff9,stroke:#333,stroke-width:2px
     
-    class MM,PM primary
-    class EP,TS,WS,FM secondary
+    class MM,TA,PM primary
+    class WA,PA,AR,ML secondary
     class DB storage

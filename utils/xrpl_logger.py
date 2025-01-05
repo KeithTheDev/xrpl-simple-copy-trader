@@ -152,33 +152,33 @@ class XRPLLogger:
 
     def log_hot_token(self, currency: str, issuer: str, 
                     trust_lines: int, time_to_hot: datetime,
-                    test_mode: Optional[bool] = None) -> None:
+                    current_price: Optional[str] = None) -> None:
         """Log when token reaches 'hot' status"""
         msg = [
             f"\n{self.EMOJIS['hot_token']} Token reached {trust_lines} trust lines!",
             f"   Currency: {currency}",
             f"   Issuer: {issuer}",
+            f"   Current price: {current_price} XRP" if current_price else "",
             f"   Time to reach threshold: {time_to_hot}\n"
         ]
-        self.success("\n".join(msg))
+        self.success("\n".join(filter(None, msg)))
 
     def log_trade(self, currency: str, issuer: str, amount: str,
-                total_volume: str, total_trades: int, trust_lines: int,
-                is_hot: bool = False, test_mode: Optional[bool] = None) -> None:
-        """Log trading activity"""
+                    total_volume: str, total_trades: int, trust_lines: int,
+                    is_hot: bool = False, price_xrp: Optional[str] = None) -> None:
+        """Log trading activity with price information"""
         emoji = self.EMOJIS['hot_trade'] if is_hot else self.EMOJIS['trade']
         prefix = "Hot token" if is_hot else "Token"
         msg = [
             f"\n{emoji} {prefix} traded!",
             f"   Currency: {currency}",
             f"   Amount: {amount}",
+            f"   Price: {price_xrp} XRP" if price_xrp else "",
             f"   Total volume: {total_volume}",
-            f"   Total trades: {total_trades}"
+            f"   Total trades: {total_trades}",
+            f"   Trust lines: {trust_lines}\n"
         ]
-        if trust_lines:
-            msg.append(f"   Trust lines: {trust_lines}")
-        msg.append("")
-        self.info("\n".join(msg))
+        self.info("\n".join(filter(None, msg)))
 
     def log_status_update(self, total_tokens: int, hot_tokens: int,
                        token_details: List[str] = None) -> None:
